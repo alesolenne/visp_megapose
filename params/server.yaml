@@ -1,0 +1,12 @@
+{
+mesh_dir: "/home/ws/src/visp_stuffs/visp_megapose/data/models",    # The path to the directory containing the 3D models    
+
+num_workers: 8,                                                        # Number of workers for rendering
+
+optimize: False,                                                       # Whether to optimize the deep network models for faster inference
+
+warmup: True,                                                          # Whether to perform model warmup in order to avoid a slow first inference pass
+
+image_batch_size: 256,                                                  # Image batch dimension
+
+}

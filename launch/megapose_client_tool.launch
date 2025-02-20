@@ -1,0 +1,8 @@
+<launch>
+  
+  <rosparam command="load" file="$(find visp_megapose)/params/client.yaml" />
+  <param name="object_name" type="string" value="tool" />
+
+  <node pkg="visp_megapose" type="megapose_client" name="megapose_client" output="screen"/>
+
+</launch>

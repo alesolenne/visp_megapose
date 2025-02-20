@@ -1,0 +1,9 @@
+<launch>
+
+   <rosparam command="load" file="$(find visp_megapose)/params/server.yaml" />
+
+   <node pkg="visp_megapose" type="megapose_server_.py" name="megapose_server" output="screen"/>
+   
+   <!-- Added static publisher panda_link0 camera_1_link -->
+   <!-- <include file="$(find visp_megapose)/launch/camera_tf_static.launch" /> -->
+</launch>
