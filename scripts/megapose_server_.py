@@ -7,7 +7,7 @@ import rospy
 import transforms3d
 from visp_megapose.srv import Init, Track, InitResponse, TrackResponse
 
-sys.path.insert(1,'/root/visp-ws/visp/script')
+sys.path.insert(1,'/home/vispci/visp-ws/visp/script')
 import megapose_server
 megapose_server_install_dir = os.path.dirname(megapose_server.__file__)
 variables_file = os.path.join(megapose_server_install_dir, 'megapose_variables_final.json')
@@ -40,7 +40,7 @@ import torch.nn as nn
 from torch.fx.experimental.optimization import fuse
 import time
 # MegaPose
-sys.path.insert(1,'/root/visp-ws/visp/script/megapose_server/megapose6d/src/megapose/datasets')
+sys.path.insert(1,'/home/vispci/visp-ws/visp/script/megapose_server/megapose6d/src/megapose/datasets')
 from megapose.datasets.object_dataset import RigidObject, RigidObjectDataset
 from megapose.datasets.scene_dataset import CameraData, ObjectData
 from megapose.inference.types import (
