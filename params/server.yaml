@@ -1,5 +1,5 @@
 {
-mesh_dir: "/home/vispci/src/visp_megapose/data/models",    # The path to the directory containing the 3D models    
+mesh_dir: "/home/vispci/catkin_ws/src/visp_megapose/data/models",    # The path to the directory containing the 3D models    
 
 num_workers: 8,                                                        # Number of workers for rendering
 
