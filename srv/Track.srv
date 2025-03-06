@@ -1,0 +1,11 @@
+# The name of the object to be tracked.
+string object_name
+# Initial pose of the object required for tracking.
+geometry_msgs/Transform init_pose
+# The image in which the object is to be tracked.
+sensor_msgs/Image image
+---
+# The result of the pose estimation.
+geometry_msgs/Transform pose
+# The confidence level of the pose estimation.
+float64 confidence

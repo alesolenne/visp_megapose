@@ -1,0 +1,1 @@
+La cartella "models" viene caricata dal Server di Megapose, conviene non riempirla di modelli per evitare di sovraccaricarlo di lavoro e raggiungere il limite di memoria della piattaforma. Nella cartella "repository" ci sono tutti i modelli generati per il lavoro.

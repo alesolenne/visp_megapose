@@ -1,0 +1,5 @@
+<launch>
+
+   <node pkg="visp_megapose" type="megapose_server_.py" name="megapose_server" output="screen"/>
+
+</launch>

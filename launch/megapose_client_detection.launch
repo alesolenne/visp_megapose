@@ -1,0 +1,5 @@
+<launch>
+  
+  <node pkg="visp_megapose" type="megapose_client_detection" name="megapose_client" output="screen"/>
+
+</launch>
