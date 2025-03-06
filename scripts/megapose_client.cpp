@@ -482,7 +482,6 @@ void MegaPoseClient::spin()
     ROS_INFO("Service not available, waiting again...");
   }
 
-  ros::Rate loop_rate(100);
   bool flag_track = false; //flag for tracking
   bool flag_render = false; //flag for tracking
   bool show_bb = false; //show initial bb
