@@ -107,10 +107,11 @@ MegaPoseClient(ros::NodeHandle *nh)
   ros::param::get("reinitThreshold",  reinitThreshold);
   ros::param::get("reset_bb",  reset_bb);
 
-  std::ifstream camera_file(megapose_directory + "/params/camera.json", std::ifstream::binary);
+  ifstream camera_file(megapose_directory + "/params/camera.json", std::ifstream::in);
   json info;
   camera_file >> info;
   roscam_info.K = {info["K"][0][0], 0, info["K"][0][2], 0, info["K"][1][1], info["K"][1][2], 0, 0, info["K"][2][2]};
+  camera_file.close();
 
 };
 
@@ -201,10 +202,18 @@ optional<vpRect> MegaPoseClient::detectObjectForInitMegaposeClick(bool &reset_bb
        int c = bottomRight.get_i();
        int d = bottomRight.get_j();
 
-       ofstream fd;
-       fd.open(megapose_directory + "/output/bb/" + object_name + "_bb.txt", ios::out);   
-       fd <<a<<endl<<b<<endl<<c<<endl<<d; /* scrittura dati */
-       fd.close();
+       ofstream bb_file(megapose_directory + "/output/bb/" + object_name + "_bb.json", ios::out);
+       json bb_out;
+
+       int point1 [1][2] = {a, b};
+       int point2 [1][2] = {c, d};
+
+       bb_out["object_name"] = object_name;
+       bb_out["point1"] = point1[0];
+       bb_out["point2"] = point2[0];
+
+       bb_file << bb_out.dump(4);
+       bb_file.close();
 
        vpRect bb(topLeft, bottomRight);
        return bb;
@@ -216,16 +225,14 @@ optional<vpRect> MegaPoseClient::detectObjectForInitMegaposeClick(bool &reset_bb
         return nullopt;
      }
   } else {
-     int bb_r[4];
-     ifstream fd;
-     fd.open(megapose_directory + "/output/bb/" + object_name + "_bb.txt", ios::in);
-     for(int i=0;i<4;i++) {
-        fd >> bb_r[i];
-        }
-     fd.close();
-     topLeft= vpImagePoint(bb_r[0], bb_r[1]);
-     bottomRight=vpImagePoint(bb_r[2], bb_r[3]);
+     ifstream bb_file(megapose_directory + "/output/bb/" + object_name + "_bb.json", ios::in);
+     json bb_in;
+     bb_file >> bb_in;
+
+     topLeft= vpImagePoint(bb_in["point1"][0], bb_in["point1"][1]);
+     bottomRight=vpImagePoint(bb_in["point2"][0], bb_in["point2"][0]);
      vpRect bb(topLeft, bottomRight);
+     bb_file.close();
      return bb;
   }
 }
@@ -324,12 +331,21 @@ void MegaPoseClient::displayEvent(const optional<vpRect> &detection)
     }
 
     if (keyboardEvent == "s") {
-        ofstream fd;
-        fd.open(megapose_directory + "/output/pose/" + object_name + "_pose.txt", ios::out);   
-        fd <<setprecision(10)<<transform.translation.x<<endl<<transform.translation.y<<endl<<transform.translation.z<<endl /* scrittura dati traslazione*/
-            <<transform.rotation.x<<endl<<transform.rotation.y<<endl<<transform.rotation.z<<endl<<transform.rotation.w; /* scrittura dati rotazione*/
-        fd.close();  
-        ROS_INFO("Pose saved on %s.txt file!", object_name.c_str());
+        
+        ofstream output_file(megapose_directory + "/output/pose/" + object_name + "_pose.json", ios::out);
+        json outJson;
+
+        double translation [1][3] = {transform.translation.x, transform.translation.y, transform.translation.z};
+        double rotation [1][4] = {transform.rotation.x, transform.rotation.y, transform.rotation.z, transform.rotation.w};
+
+        outJson["object_name"] = object_name;
+        outJson["position"] = translation[0];
+        outJson["rotation"] = rotation[0];
+
+        output_file << outJson.dump(4);
+        output_file.close();
+
+        ROS_INFO("Pose saved on %s.json file!", object_name.c_str());
     }
 
     if (keyboardEvent == "r") {
@@ -341,9 +357,7 @@ void MegaPoseClient::displayEvent(const optional<vpRect> &detection)
 
   if (show_bb) {
     vpImagePoint topLeft(detection->getTopLeft().get_i(), detection->getTopLeft().get_j());
-    cout << topLeft.get_i() << " " << topLeft.get_j() << endl;
     vpImagePoint bottomRight(detection->getBottomRight().get_i(),detection->getBottomRight().get_j());
-    cout << bottomRight.get_i() << " " << bottomRight.get_j() << endl;
     vpDisplay::displayRectangle(vpI, topLeft, bottomRight, vpColor::red); 
     
     if (keyboardEvent == "n") {
