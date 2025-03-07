@@ -110,6 +110,10 @@ MegaPoseClient(ros::NodeHandle *nh)
   reinitThreshold = 0.1;     // Reinit threshold for init and track service
   refilterThreshold = 0.5;   // Filter threshold for filter poses
 
+  flag_track = false; //flag for tracking
+  flag_render = false; //flag for tracking
+  show_bb = false; //show initial bb
+
   ros::param::get("image_topic", image_topic);
   ros::param::get("camera_tf", camera_tf);
   ros::param::get("object_name", object_name);
@@ -466,7 +470,7 @@ void MegaPoseClient::spin()
 
   vpDisplayX *d = NULL;
   d = new vpDisplayX();
-  ros::spinOnce();
+
   d->init(vpI); // also init display
   vpDisplay::setTitle(vpI, "MegaPoseClient display");
 
@@ -481,10 +485,6 @@ void MegaPoseClient::spin()
     }
     ROS_INFO("Service not available, waiting again...");
   }
-
-  bool flag_track = false; //flag for tracking
-  bool flag_render = false; //flag for tracking
-  bool show_bb = false; //show initial bb
 
   while (ros::ok()) {
     vpDisplay::display(vpI);
