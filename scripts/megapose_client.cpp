@@ -461,6 +461,7 @@ void MegaPoseClient::spin()
 {
   // Get parameters
   ROS_INFO("Subscribing to image topic: %s", image_topic.c_str());
+  ROS_INFO("Camera info loaded from camera.json file");
   ROS_INFO("Object name: %s", object_name.c_str());
 
   vector<string> labels = {object_name};

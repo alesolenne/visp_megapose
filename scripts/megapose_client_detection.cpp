@@ -25,6 +25,7 @@
 
 using namespace std;
 using namespace nlohmann;
+using std::filesystem::directory_iterator;
 
 class MegaPoseClient 
 {
@@ -36,7 +37,6 @@ class MegaPoseClient
 
   // ROS parameters
   string image_topic;
-  string camera_tf;
   string object_name;
   double reinitThreshold;
   bool reset_bb;
@@ -66,12 +66,11 @@ class MegaPoseClient
 
   void waitForImage();
   void frameCallback(const sensor_msgs::Image::ConstPtr &image);
-  void broadcastTransform(const geometry_msgs::Transform &transform, const string &child_frame_id, const string &camera_tf);
   
   void init_service_response_callback(const visp_megapose::Init::Response& future);
   void track_service_response_callback(const visp_megapose::Track::Response& future);
 
-  optional<vpRect> detectObjectForInitMegaposeClick(bool &reset_bb, const string &object_name);
+  optional<vpRect> detectObjectForInitMegaposeClick(bool &reset_bb);
 
 public:
 MegaPoseClient(ros::NodeHandle *nh) 
@@ -79,7 +78,6 @@ MegaPoseClient(ros::NodeHandle *nh)
  //Parameters:
 
  //     image_topic(string) : Name of the image topic
- //     camera_tf(string) : Name of the camera frame
  //     object_name(string) : Name of the object model
  //     reset_bb(bool) : Whether to reset the bounding box saved
 
@@ -89,12 +87,11 @@ MegaPoseClient(ros::NodeHandle *nh)
 
   initialized = false;
   init_request_done = true;
-  bool object_request = false;
+  object_request = true;
   got_image = false;
   reinitThreshold = 0.1;     // Reinit threshold for init and track service
 
   ros::param::get("image_topic", image_topic);
-  ros::param::get("camera_tf", camera_tf);
   ros::param::get("reset_bb",  reset_bb);
 
   // Load camera parameters from file
@@ -134,18 +131,7 @@ void MegaPoseClient::frameCallback(const sensor_msgs::Image::ConstPtr &image)
   got_image = true;
 }
 
-void MegaPoseClient::broadcastTransform(const geometry_msgs::Transform &transform, const string &child_frame_id, const string &camera_tf)
-{
-  static tf2_ros::TransformBroadcaster br;  
-  static geometry_msgs::TransformStamped transformStamped;
-  transformStamped.header.stamp = ros::Time::now();
-  transformStamped.header.frame_id = camera_tf;
-  transformStamped.child_frame_id = child_frame_id;
-  transformStamped.transform = transform;
-  br.sendTransform(transformStamped);
-}
-
-optional<vpRect> MegaPoseClient::detectObjectForInitMegaposeClick(bool &reset_bb, const string &object_name)
+optional<vpRect> MegaPoseClient::detectObjectForInitMegaposeClick(bool &reset_bb)
 { 
   vpImagePoint topLeft, bottomRight;
 
@@ -155,6 +141,20 @@ optional<vpRect> MegaPoseClient::detectObjectForInitMegaposeClick(bool &reset_bb
     const vpImagePoint textPosition(10.0, 20.0);
 
      if (startLabelling) {
+       if (object_request)
+          {
+            ROS_INFO("Which object? The models stored are:");
+            for (const auto& file : directory_iterator(megapose_directory + "/data/models"))
+            {
+              ROS_INFO("Models stored: %s", file.path().filename().c_str());
+            }
+            ROS_INFO("Enter the object name: ");
+            cin >> object_name;
+            object_request = false;
+          }
+       
+       ROS_INFO("Generate your bounding box with display click");
+
        vpDisplay::displayText(vpI, textPosition, "Click the upper left corner of the bounding box", vpColor::red);
        vpDisplay::flush(vpI);
        vpDisplay::getClick(vpI, topLeft, true);
@@ -191,6 +191,20 @@ optional<vpRect> MegaPoseClient::detectObjectForInitMegaposeClick(bool &reset_bb
         return nullopt;
      }
   } else {
+    vpDisplay::display(vpI);
+    if (object_request)
+     {
+        ROS_INFO("Which object? The models stored are:");
+        for (const auto& file : directory_iterator(megapose_directory + "/data/models"))
+          {
+            ROS_INFO("Models stored: %s", file.path().filename().c_str());
+          }
+        ROS_INFO("Enter the object name: ");
+        cin >> object_name;
+        object_request = false;
+     }
+ 
+     ROS_INFO("Bounding box loaded from bb.json file");
      ifstream bb_file(megapose_directory + "/output/bb/" + object_name + "_bb.json", ios::in);
      json bb_in;
      bb_file >> bb_in;
@@ -211,6 +225,7 @@ void MegaPoseClient::init_service_response_callback(const visp_megapose::Init::R
 
   if (confidence < reinitThreshold) {
       ROS_INFO("Initial pose not reliable, reinitializing...");
+      reset_bb = true;
   }
   else {
       initialized = true;
@@ -255,7 +270,7 @@ void MegaPoseClient::track_service_response_callback(const visp_megapose::Track:
               char c;
               cin>>c;
               if(c == 'n'){ros::shutdown();}
-              ros::shutdown();
+              object_request = true;
             }
 }
 
@@ -263,7 +278,7 @@ void MegaPoseClient::spin()
 {
   // Get parameters
   ROS_INFO("Subscribing to image topic: %s", image_topic.c_str());
-  ROS_INFO("Object name: %s", object_name.c_str());
+  ROS_INFO("Camera info loaded from camera.json file");
 
   vector<string> labels = {object_name};
 
@@ -297,15 +312,8 @@ void MegaPoseClient::spin()
     optional<vpRect> detection = nullopt;
 
     if (!initialized) {
-      if (!object_request)
-      {
-        ROS_INFO("Which object?");
-        cin >> object_name;
-        object_request = true;
-      }
-      
 
-       detection = detectObjectForInitMegaposeClick(reset_bb, object_name);
+       detection = detectObjectForInitMegaposeClick(reset_bb);
        
       if (detection && init_request_done) {
 
