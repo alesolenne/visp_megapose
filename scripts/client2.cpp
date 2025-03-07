@@ -21,6 +21,7 @@
 #include <visp_megapose/Init.h>
 #include <visp_megapose/Track.h>
 #include <visp_megapose/Render.h>
+#include <visp_megapose/Object.h>
 
 #include <deque>
 
@@ -51,10 +52,12 @@ class MegaPoseClient
   bool flag_render;
   bool overlayModel;
   bool got_image;
+  bool got_name;
   int buffer_size;
   double refilterThreshold;
   double confidence;
   unsigned width, height;
+  string name;
 
   vpImage<vpRGBa> overlay_img;
   vpImage<vpRGBa> vpI;               // Image used for debug display
@@ -88,6 +91,10 @@ class MegaPoseClient
   deque<double> buffer_x, buffer_y, buffer_z,buffer_qw, buffer_qx, buffer_qy, buffer_qz;
   double calculateMovingAverage(const deque<double>& buffer);
 
+  void frameObject(const visp_megapose::Object &command);
+
+  void waitForName();
+
 public:
 MegaPoseClient(ros::NodeHandle *nh) 
 { 
@@ -102,6 +109,7 @@ MegaPoseClient(ros::NodeHandle *nh)
   user = "vispci";
   megapose_directory = "/home/" + user + "/catkin_ws/src/visp_megapose";
 
+  got_name = false;
   initialized = false;
   init_request_done = true;
   got_image = false;
@@ -116,7 +124,6 @@ MegaPoseClient(ros::NodeHandle *nh)
 
   ros::param::get("image_topic", image_topic);
   ros::param::get("camera_tf", camera_tf);
-  ros::param::get("object_name", object_name);
   ros::param::get("reset_bb",  reset_bb);
 
   // Load camera parameters from file
@@ -457,15 +464,44 @@ void MegaPoseClient::render_service_response_callback(const visp_megapose::Rende
   }
 }
 
+void MegaPoseClient::frameObject(const visp_megapose::Object &command)
+{
+  got_name = true;
+  ROS_INFO("ciao");
+  name = command.obj_name;
+  object_name = name;
+
+}
+
+void MegaPoseClient::waitForName()
+{
+  ros::Rate loop_rate(10);
+  ROS_INFO("Waiting for a name ...");
+  while (ros::ok()) {
+    if (got_name) {
+      ROS_INFO("Got name!");
+      return;
+    }
+    ros::spinOnce();
+    loop_rate.sleep();
+  }
+}
+
 void MegaPoseClient::spin()
 {
   // Get parameters
   ROS_INFO("Subscribing to image topic: %s", image_topic.c_str());
   ROS_INFO("Camera info loaded from camera.json file");
-  ROS_INFO("Object name: %s", object_name.c_str());
 
   ros::Subscriber sub = nh_.subscribe(image_topic, 1000, &MegaPoseClient::frameCallback, this);
+  ros::Subscriber sub2 = nh_.subscribe("new_obj", 1000, &MegaPoseClient::frameObject, this);
+  ros::Publisher pub_pose_ = nh_.advertise<geometry_msgs::Pose>("result", 1, true);
+
+
+  ROS_INFO("Object name: %s", object_name.c_str());
   waitForImage();
+  waitForName();
+
 
   vpDisplayX *d = NULL;
   d = new vpDisplayX();
@@ -546,7 +582,15 @@ void MegaPoseClient::spin()
     }
 
   vpDisplay::flush(vpI);
-
+  geometry_msgs::Pose pose;
+  pose.position.x = transform.translation.x;
+  pose.position.y = transform.translation.y;
+  pose.position.z = transform.translation.z;
+  pose.orientation.x = transform.rotation.x;
+  pose.orientation.y = transform.rotation.y;
+  pose.orientation.z = transform.rotation.z;
+  pose.orientation.w = transform.rotation.w;
+  pub_pose_.publish(pose);
   }
   
   delete d;
