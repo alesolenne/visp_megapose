@@ -22,6 +22,7 @@
 #include <visp_megapose/Track.h>
 #include <visp_megapose/Render.h>
 #include <visp_megapose/Object.h>
+#include <visp_megapose/Result.h>
 
 #include <deque>
 
@@ -467,10 +468,7 @@ void MegaPoseClient::render_service_response_callback(const visp_megapose::Rende
 void MegaPoseClient::frameObject(const visp_megapose::Object &command)
 {
   got_name = true;
-  ROS_INFO("ciao");
-  name = command.obj_name;
-  object_name = name;
-
+  object_name = command.obj_name;
 }
 
 void MegaPoseClient::waitForName()
@@ -495,12 +493,11 @@ void MegaPoseClient::spin()
 
   ros::Subscriber sub = nh_.subscribe(image_topic, 1000, &MegaPoseClient::frameCallback, this);
   ros::Subscriber sub2 = nh_.subscribe("new_obj", 1000, &MegaPoseClient::frameObject, this);
-  ros::Publisher pub_pose_ = nh_.advertise<geometry_msgs::Pose>("result", 1, true);
+  ros::Publisher pub_pose_ = nh_.advertise<visp_megapose::Result>("result", 1, true);
 
 
   ROS_INFO("Object name: %s", object_name.c_str());
   waitForImage();
-  waitForName();
 
 
   vpDisplayX *d = NULL;
@@ -528,6 +525,7 @@ void MegaPoseClient::spin()
 
     if (!initialized) {
 
+       waitForName();
        detection = detectObjectForInitMegaposeClick(reset_bb, object_name);
        
       if (detection && init_request_done) {
@@ -579,18 +577,15 @@ void MegaPoseClient::spin()
 
       displayEvent(detection);
 
+      visp_megapose::Result res;
+      res.pose = transform;
+      res.result = true;
+      pub_pose_.publish(res);
+
     }
 
   vpDisplay::flush(vpI);
-  geometry_msgs::Pose pose;
-  pose.position.x = transform.translation.x;
-  pose.position.y = transform.translation.y;
-  pose.position.z = transform.translation.z;
-  pose.orientation.x = transform.rotation.x;
-  pose.orientation.y = transform.rotation.y;
-  pose.orientation.z = transform.rotation.z;
-  pose.orientation.w = transform.rotation.w;
-  pub_pose_.publish(pose);
+
   }
   
   delete d;

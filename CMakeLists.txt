@@ -29,6 +29,7 @@ catkin_python_setup()
 add_message_files(
   FILES
   Object.msg
+  Result.msg
 )
 
 add_service_files(
@@ -68,7 +69,7 @@ generate_messages(
 catkin_package(
 #  INCLUDE_DIRS include
   LIBRARIES visp_megapose_pkg
-  CATKIN_DEPENDS geometry_msgs rospy sensor_msgs tf2 visp_bridge message_runtime message_filters tf2_ros 
+  CATKIN_DEPENDS geometry_msgs rospy sensor_msgs tf2 visp_bridge message_runtime message_filters tf2_ros roscpp 
   DEPENDS
    VISP) 
 
