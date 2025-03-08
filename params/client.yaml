@@ -5,5 +5,5 @@ camera_tf: "usb_cam",              # Set the camera frame
 
 object_name: "box1",                       # Set the object to be detected
 
-reset_bb: False                            # Set the 2d bounding box manually
+reset_bb: True                            # Set the 2d bounding box manually
 }

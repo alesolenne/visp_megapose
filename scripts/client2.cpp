@@ -317,9 +317,9 @@ void MegaPoseClient::displayEvent(const optional<vpRect> &detection)
   vpDisplay::displayFrame(vpI, M, vpcam_info, 0.05, vpColor::none, 3);
   displayScore(confidence);
   broadcastTransform(transform, object_name, camera_tf);
-  broadcastTransform_filter(transform, object_name, camera_tf);
-  M_filter = visp_bridge::toVispHomogeneousMatrix(filter_transform);
-  vpDisplay::displayFrame(vpI, M_filter, vpcam_info, 0.05, vpColor::none, 3);
+  // broadcastTransform_filter(transform, object_name, camera_tf);
+  // M_filter = visp_bridge::toVispHomogeneousMatrix(filter_transform);
+  // vpDisplay::displayFrame(vpI, M_filter, vpcam_info, 0.05, vpColor::none, 3);
 
 }
 
@@ -559,28 +559,34 @@ void MegaPoseClient::spin()
                     ros::shutdown();
             }
       
-      if (overlayModel)
-      {
-        visp_megapose::Render render_request;
-        render_request.request.object_name = object_name;
-        render_request.request.pose = transform;
-        if (render_client.call(render_request)) 
+        if (overlayModel)
         {
-          render_service_response_callback(render_request.response);
-        } 
-        else 
-        {
-          ROS_ERROR("Render server down, exiting...");
-          ros::shutdown();
+          visp_megapose::Render render_request;
+          render_request.request.object_name = object_name;
+          render_request.request.pose = transform;
+          if (render_client.call(render_request)) 
+          {
+            render_service_response_callback(render_request.response);
+          } 
+          else 
+          {
+            ROS_ERROR("Render server down, exiting...");
+            ros::shutdown();
+          }
         }
-      }
 
       displayEvent(detection);
 
       visp_megapose::Result res;
       res.pose = transform;
-      res.result = true;
+
+      res.skip = true;
       pub_pose_.publish(res);
+      initialized = false;
+      init_request_done = true;
+      reset_bb = true;
+      flag_track = false;
+      flag_render = false;
 
     }
 

@@ -2,37 +2,90 @@
 
 import rospy
 import numpy as np
+import geometry_msgs.msg
+from tf2_msgs.msg import TFMessage
 from visp_megapose.msg import Object, Result
-from std_msgs.msg import Bool
-from geometry_msgs.msg import Pose
+import tf.transformations as tr
 
-skip = False
+
 
 def printa(msg):
     global skip
     global x,q
+    global i
+    print('sono in call')
+    global k
+    global initialized
+
     x = msg.pose.translation
     q = msg.pose.rotation
-    print('running')
-    if msg.result == True :
-        skip = True
-        a = Bool()
-        pub2.publish(a)
+    if msg.skip == True :
+        grasp_pose(x, q,  object_list[i], i)
+        initialized = True
 
-    
+        while (i < (n_object) and k):
+              k = False
+              i = i + 1
+
+
+
+def grasp_pose(x, q, name, i):
+    (r,p,y) = tr.euler_from_quaternion([q.x, q.y, q.z, q.w], 'sxyz')
+    RT2 = tr.euler_matrix(r, p, y, 'sxyz')
+    RT2[0,3] = x.x
+    RT2[1,3] = x.y
+    RT2[2,3] = x.z
+
+    # Trasformazione per portare frame sulla superficie dell'oggetto
+    if name == 'box1':
+      a =  0.063
+    elif name == 'box2':
+      a = 0.024
+    elif name == 'box3':
+      a = 0.049
+    elif name == 'box4':
+      a = 0.04
+    elif name == 'box5':
+      a = 0.06
+    elif name == 'cube':
+      a = 0.06
+    elif name == 'cubo_verde':
+      a = 0.06
+    else:
+      rospy.logerr("%s is not a valid model", name)
+
+
+    T = np.array([[    1,   0.0,    0.0,   0.0],
+                  [   0.0,    1,    0.0,     a],
+                  [   0.0,  0.0,      1,   0.0],
+                  [   0.0,  0.0,    0.0,     1]])
+
+    T12 = np.matmul(RT2, T) 
+
+    q12 = tr.quaternion_from_matrix(T12)
+    T12 = T12[0:3,3]
+
+    s[i, 0:3] = T12
+    s[i, 3:] = q12
 
 if __name__ == '__main__':
-
+    initialized = False
     n_object = rospy.get_param("n_object")
+    object_list = []
+    i = 0
+    v = 0
+    s = np.zeros((n_object, 7))
+    header_frame = 'robot_arm_link0'
 
-    for i in range(n_object):
-        object_name = rospy.get_param("object_name_" + str(i+1))
-        print('Oggetto numero '+ str(i+1) +': '+ object_name)
 
-            
+    for c in range(n_object):
+        object_name = rospy.get_param("object_name_" + str(c+1))
+        object_list.append(object_name)
+        print('Oggetto numero '+ str(c+1) +': '+ object_name)
+
     pub = rospy.Publisher('new_obj', Object, queue_size=10)
     response = rospy.Subscriber('result', Result, printa)
-    pub2 = rospy.Publisher('ciao', Bool, queue_size=10)
+    pub_tf = rospy.Publisher("/tf", TFMessage, queue_size=10)
 
 
     rospy.init_node('command', anonymous=True)
@@ -40,11 +93,35 @@ if __name__ == '__main__':
 
 
     while not rospy.is_shutdown():
+        if (i<n_object):
+            k = True
+            msg = Object()
+            msg.obj_name = object_list[i]
+            print(object_list[i])
+            rate = rospy.Rate(1) 
+            pub.publish(msg)
+        
+        if (initialized):
+            for v in range(i):
+                print('wccomi')
+                
+                child_frame = object_list[v]
+                t1 = geometry_msgs.msg.TransformStamped()
+                t1.header.frame_id = header_frame
+                t1.header.stamp = rospy.Time.now()
+                t1.child_frame_id = child_frame
+                t1.transform.translation.x = s[v][0]
+                t1.transform.translation.y = s[v][1]
+                t1.transform.translation.z = s[v][2]
+                t1.transform.rotation.x = s[v][3]
+                t1.transform.rotation.y = s[v][4]
+                t1.transform.rotation.z = s[v][5]
+                t1.transform.rotation.w = s[v][6]
 
-            for i in range(n_object):
-                msg = Object()
-                msg.obj_name = 'box1'
-                rate = rospy.Rate(1) 
-                if (not skip):
-                    pub.publish(msg)
-                rate.sleep()
+                tfm1 = TFMessage([t1])
+                pub_tf.publish(tfm1)
+        rate.sleep()
+
+
+
+

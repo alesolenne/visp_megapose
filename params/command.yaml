@@ -3,9 +3,9 @@ object_name_1: "box1",
 
 object_name_2: "cube",
 
-object_name_3: "box3",
+object_name_3: "cubo_verde",
 
-object_name_4: "box4",
+object_name_4: "cube",
 
 object_name_5: "box1",
 
@@ -15,5 +15,5 @@ object_name_7: "box3",
 
 object_name_8: "box3",
 
-n_object: 2
+n_object: 3
 }
