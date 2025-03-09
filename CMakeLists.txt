@@ -28,8 +28,8 @@ catkin_python_setup()
 
 add_message_files(
   FILES
-  Object.msg
-  Result.msg
+  ObjectName.msg
+  PoseResult.msg
 )
 
 add_service_files(
@@ -95,7 +95,7 @@ include_directories(
 ## The recommended prefix ensures that target names across packages don't collide
 add_executable(megapose_client scripts/megapose_client.cpp)
 add_executable(megapose_client_detection scripts/megapose_client_detection.cpp)
-add_executable(client2 scripts/client2.cpp)
+add_executable(megapose_client_command scripts/megapose_client_command.cpp)
 
 ## Declare a C++ library
 # add_library(${PROJECT_NAME}
@@ -107,7 +107,7 @@ add_executable(client2 scripts/client2.cpp)
 ## same as for the library above
 add_dependencies(megapose_client ${${PROJECT_NAME}_EXPORTED_TARGETS}  ${catkin_EXPORTED_TARGETS})
 add_dependencies(megapose_client_detection ${${PROJECT_NAME}_EXPORTED_TARGETS}  ${catkin_EXPORTED_TARGETS})
-add_dependencies(client2 ${${PROJECT_NAME}_EXPORTED_TARGETS}  ${catkin_EXPORTED_TARGETS})
+add_dependencies(megapose_client_command ${${PROJECT_NAME}_EXPORTED_TARGETS}  ${catkin_EXPORTED_TARGETS})
 
 ## Specify libraries to link a library or executable target against
 target_link_libraries(megapose_client
@@ -120,7 +120,7 @@ target_link_libraries(megapose_client
  ${catkin_LIBRARIES}
  ${VISP_LIBS}
 )
-target_link_libraries(client2
+target_link_libraries(megapose_client_command
 ${roscpp_LIBRARIES}
 ${catkin_LIBRARIES}
 ${VISP_LIBS}

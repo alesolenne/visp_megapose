@@ -4,24 +4,20 @@ import rospy
 import numpy as np
 import geometry_msgs.msg
 from tf2_msgs.msg import TFMessage
-from visp_megapose.msg import Object, Result
+from visp_megapose.msg import ObjectName, PoseResult
 import tf.transformations as tr
 
 
 
-def printa(msg):
-    global skip
-    global x,q
+def callback(msg):
+
     global i
-    print('sono in call')
     global k
-    global initialized
 
     x = msg.pose.translation
     q = msg.pose.rotation
     if msg.skip == True :
         grasp_pose(x, q,  object_list[i], i)
-        initialized = True
 
         while (i < (n_object) and k):
               k = False
@@ -68,9 +64,13 @@ def grasp_pose(x, q, name, i):
     s[i, 0:3] = T12
     s[i, 3:] = q12
 
+
+
 if __name__ == '__main__':
-    initialized = False
+
     n_object = rospy.get_param("n_object")
+    print('Numero di oggetti:' + str(n_object))
+
     object_list = []
     i = 0
     v = 0
@@ -83,8 +83,8 @@ if __name__ == '__main__':
         object_list.append(object_name)
         print('Oggetto numero '+ str(c+1) +': '+ object_name)
 
-    pub = rospy.Publisher('new_obj', Object, queue_size=10)
-    response = rospy.Subscriber('result', Result, printa)
+    pub = rospy.Publisher('ObjectList', ObjectName, queue_size=10)
+    response = rospy.Subscriber('PoseResult', PoseResult, callback)
     pub_tf = rospy.Publisher("/tf", TFMessage, queue_size=10)
 
 
@@ -95,31 +95,30 @@ if __name__ == '__main__':
     while not rospy.is_shutdown():
         if (i<n_object):
             k = True
-            msg = Object()
+            msg = ObjectName()
             msg.obj_name = object_list[i]
-            print(object_list[i])
-            rate = rospy.Rate(1) 
+            msg.number = n_object
+            rate = rospy.Rate(10) 
             pub.publish(msg)
         
-        if (initialized):
-            for v in range(i):
-                print('wccomi')
-                
-                child_frame = object_list[v]
-                t1 = geometry_msgs.msg.TransformStamped()
-                t1.header.frame_id = header_frame
-                t1.header.stamp = rospy.Time.now()
-                t1.child_frame_id = child_frame
-                t1.transform.translation.x = s[v][0]
-                t1.transform.translation.y = s[v][1]
-                t1.transform.translation.z = s[v][2]
-                t1.transform.rotation.x = s[v][3]
-                t1.transform.rotation.y = s[v][4]
-                t1.transform.rotation.z = s[v][5]
-                t1.transform.rotation.w = s[v][6]
+        for v in range(i):
+            
+            child_frame = object_list[v]
+            t1 = geometry_msgs.msg.TransformStamped()
+            t1.header.frame_id = header_frame
+            t1.header.stamp = rospy.Time.now()
+            t1.child_frame_id = "object_" + str(v)
+            t1.transform.translation.x = s[v][0]
+            t1.transform.translation.y = s[v][1]
+            t1.transform.translation.z = s[v][2]
+            t1.transform.rotation.x = s[v][3]
+            t1.transform.rotation.y = s[v][4]
+            t1.transform.rotation.z = s[v][5]
+            t1.transform.rotation.w = s[v][6]
 
-                tfm1 = TFMessage([t1])
-                pub_tf.publish(tfm1)
+            tfm1 = TFMessage([t1])
+            pub_tf.publish(tfm1)
+
         rate.sleep()
 
 
