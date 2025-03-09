@@ -2,6 +2,6 @@
   
   <rosparam command="load" file="$(find visp_megapose)/params/client.yaml" />
 
-  <node pkg="visp_megapose" type="client2" name="megapose_client" output="screen"/>
+  <node pkg="visp_megapose" type="megapose_client_command" name="megapose_client" output="screen"/>
 
 </launch>

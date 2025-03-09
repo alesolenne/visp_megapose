@@ -20,8 +20,12 @@ def callback(msg):
         grasp_pose(x, q,  object_list[i], i)
 
         while (i < (n_object) and k):
+              
               k = False
+              print("Object found and grasp pose for " + object_list[i] + " generated!")
               i = i + 1
+              if (i < n_object):
+                 print("Generate the bounding box for " + object_list[i] + " with interface!")
 
 
 
@@ -69,7 +73,7 @@ def grasp_pose(x, q, name, i):
 if __name__ == '__main__':
 
     n_object = rospy.get_param("n_object")
-    print('Numero di oggetti:' + str(n_object))
+    print('Number of objects:' + str(n_object))
 
     object_list = []
     i = 0
@@ -81,7 +85,9 @@ if __name__ == '__main__':
     for c in range(n_object):
         object_name = rospy.get_param("object_name_" + str(c+1))
         object_list.append(object_name)
-        print('Oggetto numero '+ str(c+1) +': '+ object_name)
+        print('Object number '+ str(c+1) +': '+ object_name)
+
+    print("Generate the bounding box for " + object_list[0] + " with interface!")
 
     pub = rospy.Publisher('ObjectList', ObjectName, queue_size=10)
     response = rospy.Subscriber('PoseResult', PoseResult, callback)
@@ -93,7 +99,7 @@ if __name__ == '__main__':
 
 
     while not rospy.is_shutdown():
-        if (i<n_object):
+        if (i < n_object):
             k = True
             msg = ObjectName()
             msg.obj_name = object_list[i]
