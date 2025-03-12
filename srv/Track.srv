@@ -4,6 +4,7 @@ string object_name
 geometry_msgs/Transform init_pose
 # The image in which the object is to be tracked.
 sensor_msgs/Image image
+sensor_msgs/Image depth        # 若不用則傳空 image
 ---
 # The result of the pose estimation.
 geometry_msgs/Transform pose

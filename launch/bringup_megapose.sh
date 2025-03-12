@@ -13,7 +13,7 @@ tmux split-window -vf
 tmux split-window -h
 
 #Launch the camera node driver
-tmux send-keys -t 0 "roslaunch visp_megapose camera.launch" C-m
+tmux send-keys -t 0 "roslaunch visp_megapose realsense.launch" C-m
 sleep 1.0
 
 #Launch the image resizer node
