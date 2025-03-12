@@ -43,6 +43,7 @@ class MegaPoseClient
 
   // ROS parameters
   string image_topic;
+  string camera_info_topic;
   string camera_tf;
   string object_name;
   double reinitThreshold;
@@ -64,7 +65,7 @@ class MegaPoseClient
   unsigned width, height, widthD, heightD;
   string depth_topic;
   string depth_info_topic;
-  bool use_depth;
+  bool depth_enable;
 
   vpImage<vpRGBa> overlay_img;
   vpImage<vpRGBa> vpI;               // Image used for debug display
@@ -143,10 +144,12 @@ MegaPoseClient(ros::NodeHandle *nh)
   show_bb = false; //show initial bb
 
   ros::param::get("image_topic", image_topic);
+  ros::param::get("camera_info_topic", camera_info_topic);
   ros::param::get("camera_tf", camera_tf);
   ros::param::get("object_name", object_name);
   ros::param::get("reset_bb",  reset_bb);
-  ros::param::get("use depth", depth_topic);
+  ros::param::get("depth_enable", depth_enable);
+  ros::param::get("depth_topic", depth_topic);
   ros::param::get("depth_info_topic",  depth_info_topic);
 
   // Load camera parameters from file
@@ -156,13 +159,13 @@ MegaPoseClient(ros::NodeHandle *nh)
   // roscam_info.K = {info["K"][0][0], 0, info["K"][0][2], 0, info["K"][1][1], info["K"][1][2], 0, 0, info["K"][2][2]};
   // camera_file.close();
 
+  image_sub.subscribe(*nh, image_topic, 1);
+  camera_info_sub.subscribe(*nh, camera_info_topic, 1);
 
-  if (use_depth)
+  if (depth_enable)
   {
-    // 當使用深度資訊時，同時訂閱 depth 話題與 depth 相機資訊
     depth_sub.subscribe(*nh, depth_topic, 1);
     depth_info_sub.subscribe(*nh, depth_info_topic, 1);
-    // 建立四話題同步器
     boost::shared_ptr<message_filters::Synchronizer<SyncPolicy4> > sync4_temp(
         new message_filters::Synchronizer<SyncPolicy4>(SyncPolicy4(1),
             image_sub, camera_info_sub, depth_sub, depth_info_sub));
@@ -171,7 +174,6 @@ MegaPoseClient(ros::NodeHandle *nh)
   }
   else
   {
-    // 如果不使用深度，則同步兩個話題即可
     boost::shared_ptr<message_filters::Synchronizer<SyncPolicy2> > sync2_temp(
         new message_filters::Synchronizer<SyncPolicy2>(SyncPolicy2(1), image_sub, camera_info_sub));
     sync2_ = sync2_temp;
@@ -251,8 +253,6 @@ void MegaPoseClient::frameCallback4(const sensor_msgs::ImageConstPtr &image,
   height = image->height;
   widthD = depth->width;
   heightD = depth->height;
-  // ROS_INFO ("Image width: %d, height: %d", width_, height_);
-  // ROS_INFO ("Depth width: %d, height: %d", widthD_, heightD_);
 
   vpI = visp_bridge::toVispImageRGBa(*image);
   vpcam_info = visp_bridge::toVispCameraParameters(*cam_info);
@@ -554,7 +554,7 @@ void MegaPoseClient::spin()
   // ros::Subscriber sub = nh_.subscribe(image_topic, 1000, &MegaPoseClient::frameCallback, this);
   
   waitForImage();
-  if (use_depth)
+  if (depth_enable)
    {
      waitForDepth();
    }
@@ -603,7 +603,7 @@ void MegaPoseClient::spin()
         init_pose.request.bottomright_i = detection->getBottomRight().get_i();
         init_pose.request.bottomright_j = detection->getBottomRight().get_j();
         init_pose.request.image = *rosI;
-        if (use_depth)
+        if (depth_enable)
          {
            init_pose.request.depth = *rosD;
          }
@@ -626,7 +626,7 @@ void MegaPoseClient::spin()
         track_pose.request.init_pose = transform;
         track_pose.request.image = *rosI;
 
-        if (use_depth)
+        if (depth_enable)
         {
           track_pose.request.depth = *rosD;
         }

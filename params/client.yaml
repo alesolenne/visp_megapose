@@ -1,13 +1,17 @@
 {
-image_topic: "/camera/color/image_raw_crop",        # Set the image topic
+image_topic: "/camera/color/image_raw",        # Set the image topic
+
+camera_info_topic: "/camera/color/camera_info", # Set the camera info topic
 
 camera_tf: "camera_link",              # Set the camera frame
 
-object_name: "box1",                       # Set the object to be detected
+object_name: "cube",                       # Set the object to be detected
 
 reset_bb: True,                            # Set the 2d bounding box manually
 
-dept_topic: "/camera/depth/image_rect_raw",  # Set the depth image topic
+depth_enable: False,                        # Enable depth image
 
-dept_info_topic: "/camera/depth/camera_info", # Set the depth camera info topic
+depth_topic: "/camera/aligned_depth_to_color/image_raw",  # Set the depth image topic
+
+depth_info_topic: "/camera/aligned_depth_to_color/camera_info", # Set the depth camera info topic
 }

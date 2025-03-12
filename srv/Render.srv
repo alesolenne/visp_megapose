@@ -4,7 +4,6 @@ string object_name
 geometry_msgs/Transform pose
 # The camera parameters.
 sensor_msgs/CameraInfo camera_info
-sensor_msgs/Image depth        # 若不用則傳空 image
 ---
 # The image resulting from rendering.
 sensor_msgs/Image image

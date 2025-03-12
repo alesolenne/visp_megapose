@@ -178,11 +178,10 @@ class MegaPoseServer:
         bridge = CvBridge()
         depth = None
 
-        img = np.array(np.frombuffer(request.image.data, dtype=np.uint8)).reshape(self.h, self.w, 4)
+        img = np.array(np.frombuffer(request.image.data, dtype=np.uint8)).reshape(self.h, self.w, 3)
 
         if self.model_use_depth:
-            # depth_uint16 = bridge.imgmsg_to_cv2(req.depth, desired_encoding="passthrough")
-            # depth = depth_uint16.astype(np.float32) / 1.0
+
             depth_uint16 = bridge.imgmsg_to_cv2(request.depth, desired_encoding="passthrough")
             depth = depth_uint16.astype(np.float32) / 1000.0
 
