@@ -22,6 +22,12 @@
 #include <visp_megapose/Track.h>
 #include <visp_megapose/Render.h>
 
+// ROS message filter includes
+#include <message_filters/subscriber.h>
+#include <message_filters/synchronizer.h>
+#include <message_filters/time_synchronizer.h>
+#include <message_filters/sync_policies/approximate_time.h>
+
 #include <deque>
 
 using namespace std;
@@ -51,18 +57,25 @@ class MegaPoseClient
   bool flag_render;
   bool overlayModel;
   bool got_image;
+  bool got_depth;
   int buffer_size;
   double refilterThreshold;
   double confidence;
-  unsigned width, height;
+  unsigned width, height, widthD, heightD;
+  string depth_topic;
+  string depth_info_topic;
+  bool use_depth;
 
   vpImage<vpRGBa> overlay_img;
   vpImage<vpRGBa> vpI;               // Image used for debug display
   vpCameraParameters vpcam_info;
   optional<vpRect> detection;
 
-  sensor_msgs::CameraInfo roscam_info;
-  sensor_msgs::Image::ConstPtr rosI; // Image received from ROS
+  sensor_msgs::CameraInfoConstPtr roscam_info;
+  // sensor_msgs::Image::ConstPtr rosI; // Image received from ROS
+
+  boost::shared_ptr<const sensor_msgs::Image> rosI; // ROS Image
+  boost::shared_ptr<const sensor_msgs::Image> rosD; // ROS Depth Image
 
   geometry_msgs::Transform transform;
   geometry_msgs::Transform filter_transform;
@@ -72,8 +85,10 @@ class MegaPoseClient
   // Functions
 
   void waitForImage();
-  void frameCallback(const sensor_msgs::Image::ConstPtr &image);
-  void broadcastTransform(const geometry_msgs::Transform &transform, const string &child_frame_id, const string &camera_tf);
+  void waitForDepth();
+  void frameCallback(const sensor_msgs::ImageConstPtr &image, const sensor_msgs::CameraInfoConstPtr &camera_info);
+  void frameCallback4(const sensor_msgs::ImageConstPtr &image, const sensor_msgs::CameraInfoConstPtr &cam_info,
+    const sensor_msgs::ImageConstPtr &depth, const sensor_msgs::CameraInfoConstPtr &depth_info);  void broadcastTransform(const geometry_msgs::Transform &transform, const string &child_frame_id, const string &camera_tf);
   void broadcastTransform_filter(const geometry_msgs::Transform &origpose, const string &child_frame_id, const string &camera_tf);
   void displayScore(float);
   void overlayRender(const vpImage<vpRGBa> &overlay);
@@ -87,6 +102,19 @@ class MegaPoseClient
   optional<vpRect> detectObjectForInitMegaposeClick(bool &reset_bb, const string &object_name);
   deque<double> buffer_x, buffer_y, buffer_z,buffer_qw, buffer_qx, buffer_qy, buffer_qz;
   double calculateMovingAverage(const deque<double>& buffer);
+
+  message_filters::Subscriber<sensor_msgs::Image> image_sub;
+  message_filters::Subscriber<sensor_msgs::CameraInfo> camera_info_sub;
+
+  message_filters::Subscriber<sensor_msgs::Image> depth_sub;
+  message_filters::Subscriber<sensor_msgs::CameraInfo> depth_info_sub;
+ 
+  typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::Image, sensor_msgs::CameraInfo> SyncPolicy2;
+  typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::Image, sensor_msgs::CameraInfo,
+                                                           sensor_msgs::Image, sensor_msgs::CameraInfo> SyncPolicy4;
+
+                                                           boost::shared_ptr<message_filters::Synchronizer<SyncPolicy2> > sync2_;
+   boost::shared_ptr<message_filters::Synchronizer<SyncPolicy4> > sync4_;
 
 public:
 MegaPoseClient(ros::NodeHandle *nh) 
@@ -118,14 +146,37 @@ MegaPoseClient(ros::NodeHandle *nh)
   ros::param::get("camera_tf", camera_tf);
   ros::param::get("object_name", object_name);
   ros::param::get("reset_bb",  reset_bb);
+  ros::param::get("use depth", depth_topic);
+  ros::param::get("depth_info_topic",  depth_info_topic);
 
   // Load camera parameters from file
-  ifstream camera_file(megapose_directory + "/params/camera.json", ifstream::in);
-  json info;
-  camera_file >> info;
-  roscam_info.K = {info["K"][0][0], 0, info["K"][0][2], 0, info["K"][1][1], info["K"][1][2], 0, 0, info["K"][2][2]};
-  camera_file.close();
+  // ifstream camera_file(megapose_directory + "/params/camera.json", ifstream::in);
+  // json info;
+  // camera_file >> info;
+  // roscam_info.K = {info["K"][0][0], 0, info["K"][0][2], 0, info["K"][1][1], info["K"][1][2], 0, 0, info["K"][2][2]};
+  // camera_file.close();
 
+
+  if (use_depth)
+  {
+    // 當使用深度資訊時，同時訂閱 depth 話題與 depth 相機資訊
+    depth_sub.subscribe(*nh, depth_topic, 1);
+    depth_info_sub.subscribe(*nh, depth_info_topic, 1);
+    // 建立四話題同步器
+    boost::shared_ptr<message_filters::Synchronizer<SyncPolicy4> > sync4_temp(
+        new message_filters::Synchronizer<SyncPolicy4>(SyncPolicy4(1),
+            image_sub, camera_info_sub, depth_sub, depth_info_sub));
+    sync4_ = sync4_temp;
+    sync4_->registerCallback(boost::bind(&MegaPoseClient::frameCallback4, this, _1, _2, _3, _4));
+  }
+  else
+  {
+    // 如果不使用深度，則同步兩個話題即可
+    boost::shared_ptr<message_filters::Synchronizer<SyncPolicy2> > sync2_temp(
+        new message_filters::Synchronizer<SyncPolicy2>(SyncPolicy2(1), image_sub, camera_info_sub));
+    sync2_ = sync2_temp;
+    sync2_->registerCallback(boost::bind(&MegaPoseClient::frameCallback, this, _1, _2));
+  }
 };
 
 ~MegaPoseClient() = default;
@@ -147,13 +198,18 @@ void MegaPoseClient::waitForImage()
   }
 }
 
-void MegaPoseClient::frameCallback(const sensor_msgs::Image::ConstPtr &image)
+void MegaPoseClient::frameCallback(const sensor_msgs::ImageConstPtr &image,
+  const sensor_msgs::CameraInfoConstPtr &cam_info)
 {
-  rosI = image;
-  vpI = visp_bridge::toVispImageRGBa(*image);
-  width = image->width;
-  height = image->height;
-  got_image = true;
+rosI = image;
+roscam_info = cam_info;
+width = image->width;
+height = image->height;
+
+vpI = visp_bridge::toVispImageRGBa(*image);
+vpcam_info = visp_bridge::toVispCameraParameters(*cam_info);
+
+got_image = true;
 }
 
 void MegaPoseClient::broadcastTransform(const geometry_msgs::Transform &transform, const string &child_frame_id, const string &camera_tf)
@@ -165,6 +221,44 @@ void MegaPoseClient::broadcastTransform(const geometry_msgs::Transform &transfor
   transformStamped.child_frame_id = child_frame_id;
   transformStamped.transform = transform;
   br.sendTransform(transformStamped);
+}
+
+void MegaPoseClient::waitForDepth()
+ {
+   ros::Rate loop_rate(10);
+   ROS_INFO("Waiting for a rectified depth...");
+   while (ros::ok())
+   {
+     if (got_depth)
+     {
+       ROS_INFO("Got image!");
+       return;
+     }
+     ros::spinOnce();
+     loop_rate.sleep();
+   }
+ }
+ 
+void MegaPoseClient::frameCallback4(const sensor_msgs::ImageConstPtr &image,
+  const sensor_msgs::CameraInfoConstPtr &cam_info,
+  const sensor_msgs::ImageConstPtr &depth,
+  const sensor_msgs::CameraInfoConstPtr &depth_info)
+{
+  rosI = image;
+  rosD = depth;
+  roscam_info = cam_info;
+  width = image->width;
+  height = image->height;
+  widthD = depth->width;
+  heightD = depth->height;
+  // ROS_INFO ("Image width: %d, height: %d", width_, height_);
+  // ROS_INFO ("Depth width: %d, height: %d", widthD_, heightD_);
+
+  vpI = visp_bridge::toVispImageRGBa(*image);
+  vpcam_info = visp_bridge::toVispCameraParameters(*cam_info);
+
+  got_image = true;
+  got_depth = true;
 }
 
 void MegaPoseClient::broadcastTransform_filter(const geometry_msgs::Transform &origpose, const string &child_frame_id, const string &camera_tf)
@@ -306,7 +400,7 @@ void MegaPoseClient::displayEvent(const optional<vpRect> &detection)
   static vpHomogeneousMatrix M;
   static vpHomogeneousMatrix M_filter;
   M = visp_bridge::toVispHomogeneousMatrix(transform);
-  vpcam_info = visp_bridge::toVispCameraParameters(roscam_info);
+  // vpcam_info = visp_bridge::toVispCameraParameters(roscam_info);
   vpDisplay::displayFrame(vpI, M, vpcam_info, 0.05, vpColor::none, 3);
   displayScore(confidence);
   broadcastTransform(transform, object_name, camera_tf);
@@ -457,8 +551,13 @@ void MegaPoseClient::spin()
   ROS_INFO("Camera info loaded from camera.json file");
   ROS_INFO("Object name: %s", object_name.c_str());
 
-  ros::Subscriber sub = nh_.subscribe(image_topic, 1000, &MegaPoseClient::frameCallback, this);
+  // ros::Subscriber sub = nh_.subscribe(image_topic, 1000, &MegaPoseClient::frameCallback, this);
+  
   waitForImage();
+  if (use_depth)
+   {
+     waitForDepth();
+   }
 
   vpDisplayX *d = NULL;
   d = new vpDisplayX();
@@ -504,6 +603,14 @@ void MegaPoseClient::spin()
         init_pose.request.bottomright_i = detection->getBottomRight().get_i();
         init_pose.request.bottomright_j = detection->getBottomRight().get_j();
         init_pose.request.image = *rosI;
+        if (use_depth)
+         {
+           init_pose.request.depth = *rosD;
+         }
+         else
+         {
+           init_pose.request.depth = sensor_msgs::Image();
+         }
 
         if (init_pose_client.call(init_pose)) {
            init_service_response_callback(init_pose.response);
@@ -518,6 +625,15 @@ void MegaPoseClient::spin()
         track_pose.request.object_name = object_name;
         track_pose.request.init_pose = transform;
         track_pose.request.image = *rosI;
+
+        if (use_depth)
+        {
+          track_pose.request.depth = *rosD;
+        }
+        else
+        {
+          track_pose.request.depth = sensor_msgs::Image();
+        }
 
         if (track_pose_client.call(track_pose)) {
             track_service_response_callback(track_pose.response);
