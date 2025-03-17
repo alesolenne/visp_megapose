@@ -67,13 +67,16 @@ class MegaPoseServer:
                 'w': data['w']
         }
 
-        self.model_name = megapose_models['RGB'][0]
+        model = rospy.get_param("~/megapose_model")
+        print ('Model selected: ', model)
+
+        self.model_name = megapose_models[model][0]
         self.mesh_dir = mesh_dir
         self.num_workers = 8
         self.optimize = False
         self.warmup = True
         self.image_batch_size = 256
-        self.model_use_depth = megapose_models['RGB'][1]
+        self.model_use_depth = megapose_models[model][1]
 
         
         self.object_dataset: RigidObjectDataset = self.make_object_dataset(self.mesh_dir)
@@ -176,15 +179,30 @@ class MegaPoseServer:
         # request: object_name, topleft_i, topleft_j, bottomright_i, bottomright_j, image
         # response: pose, scores
         bridge = CvBridge()
-        depth = None
 
         img = np.array(np.frombuffer(request.image.data, dtype=np.uint8)).reshape(self.h, self.w, 3)
 
-        if self.model_use_depth:
+        if request.depth_enable:
 
-            depth_uint16 = bridge.imgmsg_to_cv2(request.depth, desired_encoding="passthrough")
-            depth = depth_uint16.astype(np.float32) / 1000.0
+            if not self.model_info['requires_depth']:
 
+                print('Trying to use depth with a model that cannot handle it')
+                return
+            
+            else:
+
+                depth_uint16 = bridge.imgmsg_to_cv2(request.depth, desired_encoding="passthrough")
+                depth = depth_uint16.astype(np.float32) / 1000.0
+
+        else:
+
+            if not self.model_info['requires_depth']:
+                depth = None
+
+            else:
+                
+                print('Trying to use a model that requires depth without providing it')
+                return
 
         object_name = [request.object_name]
         detections = [[request.topleft_j,request.topleft_i , request.bottomright_j, request.bottomright_i ]]
@@ -217,18 +235,19 @@ class MegaPoseServer:
     def TrackPoseCallback(self, request):
         # request: object_name, init_pose, refiner_iterations, image
         # response: pose, confidence
-        t = time.time()
-        depth = None
         bridge = CvBridge()
 
         img = np.array(np.frombuffer(request.image.data, dtype=np.uint8)).reshape(self.h, self.w, 3)
+
         if self.model_use_depth:
-             try:
-                 depth_uint16 = bridge.imgmsg_to_cv2(request.depth, desired_encoding="passthrough")
-                 depth = depth_uint16.astype(np.float32) / 1000.0
-             except CvBridgeError as e:
-                 rospy.logerr("CvBridge error (depth): %s", e)
-                 return
+
+            depth_uint16 = bridge.imgmsg_to_cv2(request.depth, desired_encoding="passthrough")
+            depth = depth_uint16.astype(np.float32) / 1000.0
+
+        else:
+
+            depth = None
+
         object_name = [request.object_name]
 
         cTos_np = np.eye(4)

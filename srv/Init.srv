@@ -7,7 +7,8 @@ int16 bottomright_i
 int16 bottomright_j
 # The image in which to track the object.
 sensor_msgs/Image image
-sensor_msgs/Image depth  
+sensor_msgs/Image depth
+bool depth_enable  
 ---
 # The result of the pose estimation.
 geometry_msgs/Transform pose

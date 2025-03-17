@@ -2,6 +2,7 @@
 #include <fstream>
 #include <iostream>
 #include <nlohmann/json.hpp>
+#include <stdio.h>
 
 // visp includes
 #include <visp3/core/vpTime.h>
@@ -128,14 +129,16 @@ MegaPoseClient(ros::NodeHandle *nh)
  //     reset_bb(bool) : Whether to reset the bounding box saved
 
   this->nh_ = *nh;
-  user = "vispci";
+  char username[32];
+  cuserid(username);
+  std::string user(username);
   megapose_directory = "/home/" + user + "/catkin_ws/src/visp_megapose";
 
   initialized = false;
   init_request_done = true;
   got_image = false;
   overlayModel = false;
-  buffer_size = 10;
+  buffer_size = 20;          // Buffer size for filter poses
   reinitThreshold = 0.1;     // Reinit threshold for init and track service
   refilterThreshold = 0.5;   // Filter threshold for filter poses
 
@@ -603,6 +606,7 @@ void MegaPoseClient::spin()
         init_pose.request.bottomright_i = detection->getBottomRight().get_i();
         init_pose.request.bottomright_j = detection->getBottomRight().get_j();
         init_pose.request.image = *rosI;
+        init_pose.request.depth_enable = depth_enable;
         if (depth_enable)
          {
            init_pose.request.depth = *rosD;

@@ -1,4 +1,10 @@
 <launch>
+
+  <param name="megapose_model" value="RGBD" >
+  
+  </param>
+
   <node pkg="visp_megapose" type="megapose_server_depth.py" name="megapose_server" output="screen">
   </node>
+
 </launch>
