@@ -4,7 +4,7 @@
 # This script should be sourced before running the launch file for server
 # Set up your user name here
 
-user="vispci" #Set if launch file withouth tmux
+user=$(whoami) #Set if launch file withouth tmux
 conda_directory="/home/${user}/miniconda3"
 
 if [ ! -d "${conda_directory}/envs/megapose" ]; then

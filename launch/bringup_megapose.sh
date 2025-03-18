@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Set up the user and path to the catkin workspace
-user="vispci"
+user=$(whoami)
 catkin_directory="/home/${user}/catkin_ws"
 cd ${catkin_directory}
 source devel/setup.bash
@@ -13,11 +13,11 @@ tmux split-window -vf
 tmux split-window -h
 
 #Launch the camera node driver
-tmux send-keys -t 0 "roslaunch visp_megapose realsense.launch" C-m
+tmux send-keys -t 0 "roslaunch realsense2_camera rs_camera.launch" C-m
 sleep 1.0
 
 #Launch the image resizer node
-tmux send-keys -t 1 "roslaunch ros_imresize imresize_fixed.launch" C-m
+tmux send-keys -t 1 "roslaunch ros_imresize imresize_color.launch" C-m
 sleep 1.0
 
 #Launch the MegaPose server
