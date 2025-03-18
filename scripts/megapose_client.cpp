@@ -54,7 +54,8 @@ class MegaPoseClient
   
   bool initialized;
   bool init_request_done;
-  bool show_bb;
+  bool show_init_bb;
+  bool show_track_bb;
   bool flag_track;
   bool flag_render;
   bool overlayModel;
@@ -147,10 +148,11 @@ MegaPoseClient(ros::NodeHandle *nh)
   init_request_done = true;
   got_image = false;
   overlayModel = false;
+  show_init_bb = false;
+  show_track_bb = false;
 
   flag_track = false; //flag for tracking
   flag_render = false; //flag for tracking
-  show_bb = false; //show initial bb
 
   ros::param::get("image_topic", image_topic);
   ros::param::get("camera_info_topic", camera_info_topic);
@@ -163,13 +165,6 @@ MegaPoseClient(ros::NodeHandle *nh)
   ros::param::get("reinitThreshold", reinitThreshold);
   ros::param::get("refilterThreshold", refilterThreshold);
   ros::param::get("buffer_size", buffer_size);
-
-  // Load camera parameters from file
-  // ifstream camera_file(megapose_directory + "/params/camera.json", ifstream::in);
-  // json info;
-  // camera_file >> info;
-  // roscam_info.K = {info["K"][0][0], 0, info["K"][0][2], 0, info["K"][1][1], info["K"][1][2], 0, 0, info["K"][2][2]};
-  // camera_file.close();
 
   image_sub.subscribe(*nh, image_topic, 1);
   camera_info_sub.subscribe(*nh, camera_info_topic, 1);
@@ -348,7 +343,7 @@ void MegaPoseClient::displayEvent(const optional<vpRect> &detection)
 {
   vpDisplay::displayText(vpI, 20, 20, "q: Quit", vpColor::red);
   vpDisplay::displayText(vpI, 30, 20, "t: Reinitialize", vpColor::red);
-  vpDisplay::displayText(vpI, 40, 20, "b: Display Bounding box / n: Clear Bounding box ", vpColor::red);
+  vpDisplay::displayText(vpI, 40, 20, "b: Enable/Disable Current BBox / n: Enable/Disable Initial BBox ", vpColor::red);
   vpDisplay::displayText(vpI, 50, 20, "s: Save current pose", vpColor::red);
   vpDisplay::displayText(vpI, 60, 20, "r: Render model", vpColor::red);
 
@@ -367,10 +362,6 @@ void MegaPoseClient::displayEvent(const optional<vpRect> &detection)
         reset_bb = true;
 
         ROS_INFO("Reinitialize...");
-    }
-
-    if (keyboardEvent == "b") {
-        show_bb = true;
     }
 
     if (keyboardEvent == "s") {
@@ -398,17 +389,41 @@ void MegaPoseClient::displayEvent(const optional<vpRect> &detection)
 
     }
 
-  if (show_bb) {
+  if (show_init_bb) {
+
     vpImagePoint init_topLeft(detection->getTopLeft().get_i(), detection->getTopLeft().get_j());
     vpImagePoint init_bottomRight(detection->getBottomRight().get_i(),detection->getBottomRight().get_j());
     vpDisplay::displayRectangle(vpI, init_topLeft, init_bottomRight, vpColor::blue, false, 2);
+    
+    if (keyboardEvent == "n") {
+        show_init_bb=!show_init_bb;
+    }
+  }
+
+  else{
+
+    if (keyboardEvent == "n") {
+        show_init_bb=!show_init_bb;
+    }
+
+  }
+
+  if (show_track_bb) {
 
     vpImagePoint topLeft(bb2, bb1);
     vpImagePoint bottomRight(bb4,bb3);
     vpDisplay::displayRectangle(vpI, topLeft, bottomRight, vpColor::red, false, 2);
     
-    if (keyboardEvent == "n") {
-        show_bb=!show_bb;
+    if (keyboardEvent == "b") {
+        show_track_bb=!show_track_bb;
+    }
+
+  }
+
+  else{
+
+    if (keyboardEvent == "b") {
+        show_track_bb=!show_track_bb;
     }
 
   }
@@ -668,7 +683,7 @@ void MegaPoseClient::spin()
       {
         visp_megapose::Render render_request;
         render_request.request.object_name = object_name;
-        render_request.request.pose = transform;
+        render_request.request.pose = filter_transform;
         if (render_client.call(render_request)) 
         {
           render_service_response_callback(render_request.response);
