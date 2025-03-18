@@ -47,7 +47,10 @@ class MegaPoseServer:
         #     num_workers (int): Number of workers for rendering
         #     image_batch_size (int): Image batch dimension
         #     model_name (string): The name of the model to use. Options are:
-        #                          'RGB'. Other model to do. 
+        #                          'RGB': RGB only model
+        #                          'RGBD': RGBD model
+        #                          'RGB-multi-hypothesis': RGB only model with multi-hypothesis
+        #                          'RGBD-multi-hypothesis': RGBD model with multi-hypothesis
 
         megapose_models = {
                 'RGB': ('megapose-1.0-RGB', False),
@@ -66,12 +69,16 @@ class MegaPoseServer:
                 'w': data['w']
         }
 
-        self.model_name = megapose_models['RGB'][0]
+        model = rospy.get_param("~/megapose_model")
+        print ('Model selected: ', model)
+
+        self.model_name = megapose_models[model][0]
         self.mesh_dir = mesh_dir
         self.num_workers = 8
         self.optimize = False
         self.warmup = True
         self.image_batch_size = 256
+        self.model_use_depth = megapose_models[model][1]
 
         
         self.object_dataset: RigidObjectDataset = self.make_object_dataset(self.mesh_dir)
@@ -110,7 +117,7 @@ class MegaPoseServer:
         if self.warmup:
             print('Warming up models...')
             labels = self.object_dataset.label_to_objects.keys()
-            observation = self._make_observation_tensor(np.random.randint(0, 255, (h, w, 4), dtype=np.uint8),
+            observation = self._make_observation_tensor(np.random.randint(0, 255, (h, w, 3), dtype=np.uint8),
                                                         np.random.rand(h, w).astype(np.float32) if self.model_info['requires_depth'] else None).cuda()
             detections = self._make_detections(labels, np.asarray([[0, 0, w//2, h//2] for _ in range(len(labels))], dtype=np.float32)).cuda()
             self.model.run_inference_pipeline(observation, detections, **self.model_info['inference_parameters'])
@@ -173,9 +180,32 @@ class MegaPoseServer:
     def InitPoseCallback(self, request):
         # request: object_name, topleft_i, topleft_j, bottomright_i, bottomright_j, image
         # response: pose, scores
-        depth = None
+        bridge = CvBridge()
 
         img = np.array(np.frombuffer(request.image.data, dtype=np.uint8)).reshape(self.h, self.w, 3)
+
+        if request.depth_enable:
+
+            if not self.model_info['requires_depth']:
+
+                print('Trying to use depth with a model that cannot handle it')
+                return
+            
+            else:
+
+                depth_uint16 = bridge.imgmsg_to_cv2(request.depth, desired_encoding="passthrough")
+                depth = depth_uint16.astype(np.float32) / 1000.0
+
+        else:
+
+            if not self.model_info['requires_depth']:
+                depth = None
+
+            else:
+                
+                print('Trying to use a model that requires depth without providing it')
+                return
+
         object_name = [request.object_name]
         detections = [[request.topleft_j,request.topleft_i , request.bottomright_j, request.bottomright_i ]]
         detections = self._make_detections(object_name, detections).cuda()
@@ -207,9 +237,19 @@ class MegaPoseServer:
     def TrackPoseCallback(self, request):
         # request: object_name, init_pose, refiner_iterations, image
         # response: pose, confidence
-        t = time.time()
-        depth = None
+        bridge = CvBridge()
+
         img = np.array(np.frombuffer(request.image.data, dtype=np.uint8)).reshape(self.h, self.w, 3)
+
+        if self.model_use_depth:
+
+            depth_uint16 = bridge.imgmsg_to_cv2(request.depth, desired_encoding="passthrough")
+            depth = depth_uint16.astype(np.float32) / 1000.0
+
+        else:
+
+            depth = None
+
         object_name = [request.object_name]
 
         cTos_np = np.eye(4)

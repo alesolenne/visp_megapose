@@ -14,5 +14,3 @@ bool depth_enable
 geometry_msgs/Transform pose
 # The confidence level of the pose estimation.
 float64 confidence
-
-

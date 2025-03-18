@@ -29,3 +29,4 @@ unset __conda_setup
 
 conda activate megapose
 export LD_LIBRARY_PATH=${conda_directory}/envs/megapose/lib:$LD_LIBRARY_PATH
+export 'PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512'
