@@ -2,11 +2,11 @@
 
 from visp_megapose.megapose_depend import *               # 3rdparty libraries
 
-# Path to the dataset folder, set user to your pc username and catkin_ws to your catkin workspace
-user = "/home/vispci"
-main_folder = user + "/visp-ws/visp/script"               # The path to the directory of MegaPose
-megapose_folder = user + "/catkin_ws/src/visp_megapose"   # The path to the directory of visp_megapose
-mesh_dir = megapose_folder + "/data/models"               # The path to the directory containing the 3D models    
+# Path to the dataset folder, change to your own path
+user = getpass.getuser()
+main_folder = "/home/" + user + "/visp-ws/visp/script"               # The path to the directory of MegaPose
+megapose_folder = "/home/" + user + "/catkin_ws/src/visp_megapose"   # The path to the directory of visp_megapose
+mesh_dir = megapose_folder + "/data/models"                         # The path to the directory containing the 3D models    
 
 # Check for path existence
 mesh_dir = Path(mesh_dir).absolute()
@@ -27,7 +27,7 @@ from megapose.utils.conversion import convert_scene_observation_to_panda3d
 from megapose.panda3d_renderer import Panda3dLightData
 from megapose.panda3d_renderer.panda3d_scene_renderer import Panda3dSceneRenderer
 
-# Load camera information
+# Load camera information, can be generated with ros_imresize node
 data = json.loads(open(megapose_folder + '/params/camera.json').read())
 print('Camera calibration parameter loaded from camera.json file')
 
@@ -71,14 +71,14 @@ class MegaPoseServer:
 
         model = rospy.get_param("~/megapose_model")
         print ('Model selected: ', model)
-
         self.model_name = megapose_models[model][0]
+        self.model_use_depth = megapose_models[model][1]
+
         self.mesh_dir = mesh_dir
         self.num_workers = 8
         self.optimize = False
         self.warmup = True
         self.image_batch_size = 256
-        self.model_use_depth = megapose_models[model][1]
 
         
         self.object_dataset: RigidObjectDataset = self.make_object_dataset(self.mesh_dir)
@@ -92,6 +92,7 @@ class MegaPoseServer:
         h, w = self.camera_data.resolution
         self.h = h
         self.w = w
+        print ('Camera resolution: ', h, w)
 
         self.renderer = Panda3dSceneRenderer(self.object_dataset)
 
@@ -115,8 +116,9 @@ class MegaPoseServer:
             self.model.refiner_model.backbone = Optimized(self.model.refiner_model.backbone, (1, 32 if self.model_info['requires_depth'] else 27, h, w))
 
         if self.warmup:
-            print('Warming up models...')
             labels = self.object_dataset.label_to_objects.keys()
+            print('Models are:', list(labels))
+            print('Warming up models...')
             observation = self._make_observation_tensor(np.random.randint(0, 255, (h, w, 3), dtype=np.uint8),
                                                         np.random.rand(h, w).astype(np.float32) if self.model_info['requires_depth'] else None).cuda()
             detections = self._make_detections(labels, np.asarray([[0, 0, w//2, h//2] for _ in range(len(labels))], dtype=np.float32)).cuda()
@@ -183,6 +185,17 @@ class MegaPoseServer:
         bridge = CvBridge()
 
         img = np.array(np.frombuffer(request.image.data, dtype=np.uint8)).reshape(self.h, self.w, 3)
+
+        camera_data = {
+            'K': np.asarray([
+                [request.camera_info.K[0], request.camera_info.K[1], request.camera_info.K[2]],
+                [request.camera_info.K[3], request.camera_info.K[4], request.camera_info.K[5]],
+                [request.camera_info.K[6], request.camera_info.K[7], request.camera_info.K[8]]
+            ]),
+            'h': request.camera_info.height,
+            'w': request.camera_info.width
+        }
+        self.camera_data = self._make_camera_data(camera_data)
 
         if request.depth_enable:
 

@@ -613,6 +613,7 @@ void MegaPoseClient::spin()
         init_pose.request.bottomright_i = detection->getBottomRight().get_i();
         init_pose.request.bottomright_j = detection->getBottomRight().get_j();
         init_pose.request.image = *rosI;
+        init_pose.request.camera_info = *roscam_info;
         init_pose.request.depth_enable = depth_enable;
         if (depth_enable)
          {

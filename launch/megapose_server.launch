@@ -1,7 +1,11 @@
 <launch>
 
   <param name="megapose_model" value="RGB" >
+  </param>
+  <param name="height" value="480" >
   
+  </param>
+  <param name="width" value="640" >
   </param>
 
   <node pkg="visp_megapose" type="megapose_server_.py" name="megapose_server" output="screen">
