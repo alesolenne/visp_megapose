@@ -84,6 +84,8 @@ class MegaPoseClient
 
   json info;
 
+  float bb1, bb2, bb3, bb4;
+
   // Functions
 
   void waitForImage();
@@ -397,9 +399,13 @@ void MegaPoseClient::displayEvent(const optional<vpRect> &detection)
     }
 
   if (show_bb) {
-    vpImagePoint topLeft(detection->getTopLeft().get_i(), detection->getTopLeft().get_j());
-    vpImagePoint bottomRight(detection->getBottomRight().get_i(),detection->getBottomRight().get_j());
-    vpDisplay::displayRectangle(vpI, topLeft, bottomRight, vpColor::red); 
+    vpImagePoint init_topLeft(detection->getTopLeft().get_i(), detection->getTopLeft().get_j());
+    vpImagePoint init_bottomRight(detection->getBottomRight().get_i(),detection->getBottomRight().get_j());
+    vpDisplay::displayRectangle(vpI, init_topLeft, init_bottomRight, vpColor::blue, false, 2);
+
+    vpImagePoint topLeft(bb2, bb1);
+    vpImagePoint bottomRight(bb4,bb3);
+    vpDisplay::displayRectangle(vpI, topLeft, bottomRight, vpColor::red, false, 2);
     
     if (keyboardEvent == "n") {
         show_bb=!show_bb;
@@ -526,6 +532,10 @@ void MegaPoseClient::track_service_response_callback(const visp_megapose::Track:
 {
   transform = future.pose;
   confidence = future.confidence;
+  bb1 = future.bb1;
+  bb2 = future.bb2;
+  bb3 = future.bb3;
+  bb4 = future.bb4;
 
   if (confidence < reinitThreshold) {
       initialized = false;

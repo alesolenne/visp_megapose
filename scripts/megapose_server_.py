@@ -46,11 +46,11 @@ class MegaPoseServer:
         #     warmup (bool): Whether to perform model warmup in order to avoid a slow first inference pass
         #     num_workers (int): Number of workers for rendering
         #     image_batch_size (int): Image batch dimension
-        #     model_name (string): The name of the model to use. Options are:
-        #                          'RGB': RGB only model
-        #                          'RGBD': RGBD model
-        #                          'RGB-multi-hypothesis': RGB only model with multi-hypothesis
-        #                          'RGBD-multi-hypothesis': RGBD model with multi-hypothesis
+        #     megaposse_model (string): The name of the model to use. Options are:
+        #                              'RGB': RGB only model
+        #                              'RGBD': RGBD model
+        #                              'RGB-multi-hypothesis': RGB only model with multi-hypothesis
+        #                              'RGBD-multi-hypothesis': RGBD model with multi-hypothesis
 
         megapose_models = {
                 'RGB': ('megapose-1.0-RGB', False),
@@ -75,7 +75,7 @@ class MegaPoseServer:
         self.model_use_depth = megapose_models[model][1]
 
         self.mesh_dir = mesh_dir
-        self.num_workers = 8
+        self.num_workers = 4
         self.optimize = False
         self.warmup = True
         self.image_batch_size = 256
@@ -92,7 +92,7 @@ class MegaPoseServer:
         h, w = self.camera_data.resolution
         self.h = h
         self.w = w
-        print ('Camera resolution: ', h, w)
+        print ('Camera resolution: ', self.w, self.h)
 
         self.renderer = Panda3dSceneRenderer(self.object_dataset)
 
@@ -112,16 +112,16 @@ class MegaPoseServer:
                 def forward(self, x):
                     return self.m(x).float()
 
-            self.model.coarse_model.backbone = Optimized(self.model.coarse_model.backbone, (1, 9, h, w))
-            self.model.refiner_model.backbone = Optimized(self.model.refiner_model.backbone, (1, 32 if self.model_info['requires_depth'] else 27, h, w))
+            self.model.coarse_model.backbone = Optimized(self.model.coarse_model.backbone, (1, 9, self.h, self.w))
+            self.model.refiner_model.backbone = Optimized(self.model.refiner_model.backbone, (1, 32 if self.model_info['requires_depth'] else 27, self.h, self.w))
 
         if self.warmup:
             labels = self.object_dataset.label_to_objects.keys()
             print('Models are:', list(labels))
             print('Warming up models...')
-            observation = self._make_observation_tensor(np.random.randint(0, 255, (h, w, 3), dtype=np.uint8),
-                                                        np.random.rand(h, w).astype(np.float32) if self.model_info['requires_depth'] else None).cuda()
-            detections = self._make_detections(labels, np.asarray([[0, 0, w//2, h//2] for _ in range(len(labels))], dtype=np.float32)).cuda()
+            observation = self._make_observation_tensor(np.random.randint(0, 255, (self.h, self.w, 3), dtype=np.uint8),
+                                                        np.random.rand(self.h, self.w).astype(np.float32) if self.model_info['requires_depth'] else None).cuda()
+            detections = self._make_detections(labels, np.asarray([[0, 0, self.w//2, self.h//2] for _ in range(len(labels))], dtype=np.float32)).cuda()
             self.model.run_inference_pipeline(observation, detections, **self.model_info['inference_parameters'])
         print('Waiting for request...')
 
@@ -180,11 +180,9 @@ class MegaPoseServer:
         return ObservationTensor.from_numpy(image, depth, self.camera_data.K)
 
     def InitPoseCallback(self, request):
-        # request: object_name, topleft_i, topleft_j, bottomright_i, bottomright_j, image
+        # request: object_name, topleft_i, topleft_j, bottomright_i, bottomright_j, image, camera_info, depth_enable
         # response: pose, scores
         bridge = CvBridge()
-
-        img = np.array(np.frombuffer(request.image.data, dtype=np.uint8)).reshape(self.h, self.w, 3)
 
         camera_data = {
             'K': np.asarray([
@@ -196,6 +194,10 @@ class MegaPoseServer:
             'w': request.camera_info.width
         }
         self.camera_data = self._make_camera_data(camera_data)
+        self.h = self.camera_data.resolution[0]
+        self.w = self.camera_data.resolution[1]
+
+        img = np.array(np.frombuffer(request.image.data, dtype=np.uint8)).reshape(self.h, self.w, 3)
 
         if request.depth_enable:
 
@@ -249,7 +251,7 @@ class MegaPoseServer:
     
     def TrackPoseCallback(self, request):
         # request: object_name, init_pose, refiner_iterations, image
-        # response: pose, confidence
+        # response: pose, confidence, bounding_box
         bridge = CvBridge()
 
         img = np.array(np.frombuffer(request.image.data, dtype=np.uint8)).reshape(self.h, self.w, 3)
@@ -301,6 +303,10 @@ class MegaPoseServer:
         response.pose.rotation.z = rotation[3]
         response.pose.rotation.w = rotation[0]
         response.confidence = float(confidence[0])
+        response.bb1 = bounding_boxes[0][0]
+        response.bb2 = bounding_boxes[0][1]
+        response.bb3 = bounding_boxes[0][2]
+        response.bb4 = bounding_boxes[0][3]
 
         return response
     
