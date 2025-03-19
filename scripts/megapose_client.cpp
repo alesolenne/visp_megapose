@@ -92,8 +92,8 @@ class MegaPoseClient
   void waitForImage();
   void waitForDepth();
   void frameCallback(const sensor_msgs::ImageConstPtr &image, const sensor_msgs::CameraInfoConstPtr &camera_info);
-  void frameCallback4(const sensor_msgs::ImageConstPtr &image, const sensor_msgs::CameraInfoConstPtr &cam_info,
-    const sensor_msgs::ImageConstPtr &depth, const sensor_msgs::CameraInfoConstPtr &depth_info);  void broadcastTransform(const geometry_msgs::Transform &transform, const string &child_frame_id, const string &camera_tf);
+  void frameCallback4(const sensor_msgs::ImageConstPtr &image, const sensor_msgs::CameraInfoConstPtr &cam_info, const sensor_msgs::ImageConstPtr &depth);
+  void broadcastTransform(const geometry_msgs::Transform &transform, const string &child_frame_id, const string &camera_tf);
   void broadcastTransform_filter(const geometry_msgs::Transform &origpose, const string &child_frame_id, const string &camera_tf);
   void displayScore(float);
   void overlayRender(const vpImage<vpRGBa> &overlay);
@@ -115,11 +115,10 @@ class MegaPoseClient
   message_filters::Subscriber<sensor_msgs::CameraInfo> depth_info_sub;
  
   typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::Image, sensor_msgs::CameraInfo> SyncPolicy2;
-  typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::Image, sensor_msgs::CameraInfo,
-                                                           sensor_msgs::Image, sensor_msgs::CameraInfo> SyncPolicy4;
+  typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::Image, sensor_msgs::CameraInfo, sensor_msgs::Image> SyncPolicy4;
 
-                                                           boost::shared_ptr<message_filters::Synchronizer<SyncPolicy2> > sync2_;
-   boost::shared_ptr<message_filters::Synchronizer<SyncPolicy4> > sync4_;
+  boost::shared_ptr<message_filters::Synchronizer<SyncPolicy2> > sync2_;
+  boost::shared_ptr<message_filters::Synchronizer<SyncPolicy4> > sync4_;
 
 public:
 MegaPoseClient(ros::NodeHandle *nh) 
@@ -133,7 +132,6 @@ MegaPoseClient(ros::NodeHandle *nh)
  //     reset_bb(bool) : Whether to reset the bounding box saved
  //     depth_enable(bool) : Whether to use depth image
  //     depth_topic(string) : Name of the depth image topic
- //     depth_info_topic(string) : Name of the depth camera info topic
  //     reinitThreshold(double) : Reinit threshold for init and track service
  //     refilterThreshold(double) : Filter threshold for filter poses
  //     buffer_size(int) : Buffer size for filter poses
@@ -161,7 +159,6 @@ MegaPoseClient(ros::NodeHandle *nh)
   ros::param::get("reset_bb",  reset_bb);
   ros::param::get("depth_enable", depth_enable);
   ros::param::get("depth_topic", depth_topic);
-  ros::param::get("depth_info_topic",  depth_info_topic);
   ros::param::get("reinitThreshold", reinitThreshold);
   ros::param::get("refilterThreshold", refilterThreshold);
   ros::param::get("buffer_size", buffer_size);
@@ -172,12 +169,11 @@ MegaPoseClient(ros::NodeHandle *nh)
   if (depth_enable)
   {
     depth_sub.subscribe(*nh, depth_topic, 1);
-    depth_info_sub.subscribe(*nh, depth_info_topic, 1);
     boost::shared_ptr<message_filters::Synchronizer<SyncPolicy4> > sync4_temp(
         new message_filters::Synchronizer<SyncPolicy4>(SyncPolicy4(1),
-            image_sub, camera_info_sub, depth_sub, depth_info_sub));
+            image_sub, camera_info_sub, depth_sub));
     sync4_ = sync4_temp;
-    sync4_->registerCallback(boost::bind(&MegaPoseClient::frameCallback4, this, _1, _2, _3, _4));
+    sync4_->registerCallback(boost::bind(&MegaPoseClient::frameCallback4, this, _1, _2, _3));
   }
   else
   {
@@ -207,8 +203,7 @@ void MegaPoseClient::waitForImage()
   }
 }
 
-void MegaPoseClient::frameCallback(const sensor_msgs::ImageConstPtr &image,
-  const sensor_msgs::CameraInfoConstPtr &cam_info)
+void MegaPoseClient::frameCallback(const sensor_msgs::ImageConstPtr &image, const sensor_msgs::CameraInfoConstPtr &cam_info)
 {
 rosI = image;
 roscam_info = cam_info;
@@ -248,10 +243,7 @@ void MegaPoseClient::waitForDepth()
    }
  }
  
-void MegaPoseClient::frameCallback4(const sensor_msgs::ImageConstPtr &image,
-  const sensor_msgs::CameraInfoConstPtr &cam_info,
-  const sensor_msgs::ImageConstPtr &depth,
-  const sensor_msgs::CameraInfoConstPtr &depth_info)
+void MegaPoseClient::frameCallback4(const sensor_msgs::ImageConstPtr &image, const sensor_msgs::CameraInfoConstPtr &cam_info, const sensor_msgs::ImageConstPtr &depth)
 {
   rosI = image;
   rosD = depth;

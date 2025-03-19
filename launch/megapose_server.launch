@@ -6,7 +6,7 @@
                       'RGB-multi-hypothesis': RGB only model with multi-hypothesis
                       'RGBD-multi-hypothesis': RGBD model with multi-hypothesis -->
                       
-  <param name="megapose_model" value="RGB" >
+  <param name="megapose_model" value="RGBD" >
   </param>
 
 
