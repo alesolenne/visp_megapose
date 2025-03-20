@@ -21,7 +21,7 @@ tmux send-keys -t 1 "roslaunch ros_imresize imresize_color.launch" C-m
 sleep 1.0
 
 #Launch the MegaPose server
-tmux send-keys -t 2 "user=${user} &&. /home/${user}/catkin_ws/src/visp_megapose/launch/megapose_env.sh " C-m
+tmux send-keys -t 2 "user=${user} &&. /home/${user}/catkin_ws/src/visp_megapose/launch/env/megapose_env.sh " C-m
 sleep 1.0
 tmux send-keys -t 2 "roslaunch visp_megapose megapose_server.launch" C-m
 sleep 1.0

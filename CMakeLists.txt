@@ -69,7 +69,7 @@ generate_messages(
 catkin_package(
 #  INCLUDE_DIRS include
   LIBRARIES visp_megapose_pkg
-  CATKIN_DEPENDS geometry_msgs rospy sensor_msgs tf2 visp_bridge message_runtime message_filters tf2_ros roscpp 
+  CATKIN_DEPENDS geometry_msgs rospy sensor_msgs tf2 visp_bridge message_runtime message_filters tf2_ros roscpp
   DEPENDS
    VISP) 
 
@@ -94,7 +94,6 @@ include_directories(
 ## With catkin_make all packages are built within a single CMake context
 ## The recommended prefix ensures that target names across packages don't collide
 add_executable(megapose_client scripts/megapose_client.cpp)
-add_executable(megapose_client_detection scripts/megapose_client_detection.cpp)
 add_executable(megapose_client_command scripts/megapose_client_command.cpp)
 
 ## Declare a C++ library
@@ -106,7 +105,6 @@ add_executable(megapose_client_command scripts/megapose_client_command.cpp)
 ## Add cmake target dependencies of the executable
 ## same as for the library above
 add_dependencies(megapose_client ${${PROJECT_NAME}_EXPORTED_TARGETS}  ${catkin_EXPORTED_TARGETS})
-add_dependencies(megapose_client_detection ${${PROJECT_NAME}_EXPORTED_TARGETS}  ${catkin_EXPORTED_TARGETS})
 add_dependencies(megapose_client_command ${${PROJECT_NAME}_EXPORTED_TARGETS}  ${catkin_EXPORTED_TARGETS})
 
 ## Specify libraries to link a library or executable target against
@@ -115,11 +113,6 @@ target_link_libraries(megapose_client
    ${catkin_LIBRARIES}
    ${VISP_LIBS}
  )
- target_link_libraries(megapose_client_detection
- ${roscpp_LIBRARIES}
- ${catkin_LIBRARIES}
- ${VISP_LIBS}
-)
 target_link_libraries(megapose_client_command
 ${roscpp_LIBRARIES}
 ${catkin_LIBRARIES}
