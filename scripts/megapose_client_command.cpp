@@ -54,7 +54,6 @@ class MegaPoseClient
   // Variables
   bool initialized;
   bool init_request_done;
-  bool overlayModel;
   bool got_image;
   bool got_depth;
   bool got_name;
@@ -65,7 +64,6 @@ class MegaPoseClient
 
   json info;
 
-  vpImage<vpRGBa> overlay_img;
   vpImage<vpRGBa> vpI;
   vpCameraParameters vpcam_info;
   optional<vpRect> detection;
@@ -102,10 +100,7 @@ class MegaPoseClient
   
   void init_service_response_callback(const visp_megapose::Init::Response& future);
   void track_service_response_callback(const visp_megapose::Track::Response& future);
-  void render_service_response_callback(const visp_megapose::Render::Response& future);
 
-  void overlayRender(const vpImage<vpRGBa> &overlay);
-  vpColor interpolate(const vpColor &low, const vpColor &high, const float f);
   optional<vpRect> detectObjectForInitMegaposeClick(const string &object_name);
 
   void waitForName();
@@ -132,7 +127,6 @@ MegaPoseClient(ros::NodeHandle *nh)
   initialized = false;
   init_request_done = true;
   got_image = false;
-  overlayModel = false;
   got_name = false;
   object_found = 0;
 
@@ -228,29 +222,6 @@ void MegaPoseClient::frameCallback_rgbd(const sensor_msgs::ImageConstPtr &image,
   got_depth = true;
 }
 
-void MegaPoseClient::overlayRender(const vpImage<vpRGBa> &overlay)
-{
-  vpRGBa black(0, 0, 0);
-  for (unsigned int i = 0; i < height; ++i)
-  {
-    for (unsigned int j = 0; j < width; ++j)
-    {
-      if (const_cast<vpRGBa&>(overlay[i][j]) != black)
-      {
-        vpI[i][j] = overlay[i][j];
-      }
-    }
-  }
-}
-
-vpColor MegaPoseClient::interpolate(const vpColor &low, const vpColor &high, const float f)
-{
-  const float r = ((float)high.R - (float)low.R) * f;
-  const float g = ((float)high.G - (float)low.G) * f;
-  const float b = ((float)high.B - (float)low.B) * f;
-  return vpColor((unsigned char)r, (unsigned char)g, (unsigned char)b);
-}
-
 optional<vpRect> MegaPoseClient::detectObjectForInitMegaposeClick(const string &object_name)
 { 
   vpImagePoint topLeft, bottomRight;
@@ -344,15 +315,6 @@ void MegaPoseClient::track_service_response_callback(const visp_megapose::Track:
 
          }
 
-}
-
-void MegaPoseClient::render_service_response_callback(const visp_megapose::Render::Response& future)
-{
-  overlay_img = visp_bridge::toVispImageRGBa(future.image);
-  if (overlay_img.getSize() > 0){
-    overlayRender(overlay_img);
-    ROS_INFO("Model rendered successfully!");
-    }
 }
 
 void MegaPoseClient::frameObject(const visp_megapose::ObjectName &command)
@@ -471,30 +433,14 @@ void MegaPoseClient::spin()
         if (track_pose_client.call(track_pose)) {
 
             track_service_response_callback(track_pose.response);
-
+            visp_megapose::Render render_request;
+            render_request.request.object_name = object_name;
+            render_request.request.pose = transform;
+    
         } 
         else {
               ROS_WARN("Tracking server down, exiting...");
               ros::shutdown();
-        }
-
-        if (overlayModel) {
-
-          visp_megapose::Render render_request;
-          render_request.request.object_name = object_name;
-          render_request.request.pose = transform;
-
-          if (render_client.call(render_request)) {
-
-            render_service_response_callback(render_request.response);
-
-          } 
-          else {
-
-            ROS_ERROR("Render server down, exiting...");
-            ros::shutdown();
-
-          }
         }
 
     }
