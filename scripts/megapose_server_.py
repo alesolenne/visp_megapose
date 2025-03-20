@@ -29,7 +29,6 @@ from megapose.panda3d_renderer.panda3d_scene_renderer import Panda3dSceneRendere
 
 # Load camera information, can be generated with ros_imresize node
 data = json.loads(open(megapose_folder + '/params/camera.json').read())
-print('Camera calibration parameter loaded from camera.json file')
 
 # Server ROS1
 from visp_megapose.srv import Init, Track, Render, InitResponse, TrackResponse, RenderResponse
@@ -69,8 +68,7 @@ class MegaPoseServer:
                 'w': data['w']
         }
 
-        model = rospy.get_param("~/megapose_model")
-        print ('Model selected: ', model)
+        model = rospy.get_param("~megapose_model")
         self.model_name = megapose_models[model][0]
         self.model_use_depth = megapose_models[model][1]
 
@@ -92,15 +90,18 @@ class MegaPoseServer:
         h, w = self.camera_data.resolution
         self.h = h
         self.w = w
-        print ('Camera resolution: ', self.w, self.h)
 
         self.renderer = Panda3dSceneRenderer(self.object_dataset)
 
         torch.backends.cudnn.benchmark = True
         torch.backends.cudnn.deterministic = False
 
+        rospy.loginfo('Camera calibration parameter loaded from camera.json file')
+        rospy.loginfo ('Model selected: %s', model)
+        rospy.loginfo ('Camera resolution: %s, %s', self.w, self.h)
+        
         if self.optimize:
-            print('Optimizing Pytorch models...')
+            rospy.loginfo('Optimizing Pytorch models...')
             class Optimized(nn.Module):
                 def __init__(self, m: nn.Module, inp):
                     super().__init__()
@@ -117,13 +118,13 @@ class MegaPoseServer:
 
         if self.warmup:
             labels = self.object_dataset.label_to_objects.keys()
-            print('Models are:', list(labels))
-            print('Warming up models...')
+            rospy.loginfo('Models are: %s', list(labels))
+            rospy.loginfo('Warming up models...')
             observation = self._make_observation_tensor(np.random.randint(0, 255, (self.h, self.w, 3), dtype=np.uint8),
                                                         np.random.rand(self.h, self.w).astype(np.float32) if self.model_info['requires_depth'] else None).cuda()
             detections = self._make_detections(labels, np.asarray([[0, 0, self.w//2, self.h//2] for _ in range(len(labels))], dtype=np.float32)).cuda()
             self.model.run_inference_pipeline(observation, detections, **self.model_info['inference_parameters'])
-        print('Waiting for request...')
+        rospy.loginfo('Waiting for request...')
 
         self.srv_init_pose = rospy.Service("init_pose", Init, self.InitPoseCallback)
         self.srv_track_pose = rospy.Service("track_pose", Track, self.TrackPoseCallback)
@@ -182,6 +183,7 @@ class MegaPoseServer:
     def InitPoseCallback(self, request):
         # request: object_name, topleft_i, topleft_j, bottomright_i, bottomright_j, image, camera_info, depth_enable
         # response: pose, scores
+
         bridge = CvBridge()
 
         camera_data = {
@@ -203,7 +205,7 @@ class MegaPoseServer:
 
             if not self.model_info['requires_depth']:
 
-                print('Trying to use depth with a model that cannot handle it')
+                rospy.loginfo('Trying to use depth with a model that cannot handle it')
                 return
             
             else:
@@ -218,7 +220,7 @@ class MegaPoseServer:
 
             else:
                 
-                print('Trying to use a model that requires depth without providing it')
+                rospy.loginfo('Trying to use a model that requires depth without providing it')
                 return
 
         object_name = [request.object_name]
@@ -252,6 +254,7 @@ class MegaPoseServer:
     def TrackPoseCallback(self, request):
         # request: object_name, init_pose, refiner_iterations, image
         # response: pose, confidence, bounding_box
+
         bridge = CvBridge()
 
         img = np.array(np.frombuffer(request.image.data, dtype=np.uint8)).reshape(self.h, self.w, 3)
@@ -311,6 +314,9 @@ class MegaPoseServer:
         return response
     
     def RenderObjectCallback(self, request):
+        # request: object_name, pose
+        # response: image
+
         labels = [request.object_name]
         poses = np.eye(4)
         poses[0:3, 3] = [request.pose.translation.x, request.pose.translation.y, request.pose.translation.z]
@@ -345,15 +351,15 @@ class MegaPoseServer:
         img = renderings.rgb
         img = np.uint8(img).reshape(1, -1).tolist()[0]
 
-        image = Image()
-        image.header.stamp = rospy.Time.now()
-        image.height = renderings.rgb.shape[0]
-        image.width = renderings.rgb.shape[1]
-        image.encoding = 'rgb8'
-        image.is_bigendian = 0
-        image.step = 3 * renderings.rgb.shape[1]
-        image.data = img
-        return image
+        response = Image()
+        response.header.stamp = rospy.Time.now()
+        response.height = renderings.rgb.shape[0]
+        response.width = renderings.rgb.shape[1]
+        response.encoding = 'rgb8'
+        response.is_bigendian = 0
+        response.step = 3 * renderings.rgb.shape[1]
+        response.data = img
+        return response
 
 if __name__ == '__main__':
     rospy.init_node('MegaPoseServer')

@@ -6,7 +6,7 @@ camera_info_topic: "/camera/color/camera_info", # Set the camera info topic
 
 camera_tf: "camera_link",              # Set the camera frame
 
-object_name: "box1_6",                       # Set the object to be detected
+object_name: "box1",                       # Set the object to be detected
 
 reset_bb: True,                            # Set the 2d bounding box manually
 
