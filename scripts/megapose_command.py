@@ -16,10 +16,11 @@ def callback(msg):
 
     x = msg.pose.translation
     q = msg.pose.rotation
+    print(msg)
     if msg.skip == True :
         grasp_pose(x, q,  object_list[i], i)
 
-        while (i < (n_object) and k):
+        while (i <= (n_object) and k):
               
               k = False
               print("Object found and grasp pose for " + object_list[i] + " generated!")
@@ -37,7 +38,7 @@ def grasp_pose(x, q, name, i):
     RT2[2,3] = x.z
 
     # Trasformazione per portare frame sulla superficie dell'oggetto
-    if name == 'box1':
+    if (name == 'box1' or name == 'box1_6' or name == 'box1_3'):
       a =  0.063
     elif name == 'box2':
       a = 0.024
@@ -126,7 +127,3 @@ if __name__ == '__main__':
             pub_tf.publish(tfm1)
 
         rate.sleep()
-
-
-
-
