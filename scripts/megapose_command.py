@@ -16,7 +16,6 @@ def callback(msg):
 
     x = msg.pose.translation
     q = msg.pose.rotation
-    print(msg)
     if msg.skip == True :
         grasp_pose(x, q,  object_list[i], i)
 

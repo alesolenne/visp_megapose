@@ -322,7 +322,7 @@ void MegaPoseClient::track_service_response_callback(const visp_megapose::Track:
               res.skip = true;
               pub_pose.publish(res);
               object_found = object_found + 1;
-              ROS_INFO("Object %s found! Pose: [%f, %f, %f, %f, %f, %f, %f] ", object_name.c_str(), transform.translation.x, transform.translation.y, transform.translation.z, transform.rotation.x, transform.rotation.y, transform.rotation.z, transform.rotation.w);
+              ROS_INFO("Object %s found! \n Pose: [%f, %f, %f, %f, %f, %f, %f] ", object_name.c_str(), transform.translation.x, transform.translation.y, transform.translation.z, transform.rotation.x, transform.rotation.y, transform.rotation.z, transform.rotation.w);
               ROS_INFO("Pose confidence: %f: ", confidence);
 
               ofstream output_file(megapose_directory + "/output/pose/" + object_name + "_pose.json", ios::out);
