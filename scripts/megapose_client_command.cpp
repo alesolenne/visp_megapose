@@ -145,7 +145,7 @@ MegaPoseClient(ros::NodeHandle *nh)
   image_sub.subscribe(*nh, image_topic, 1);
   camera_info_sub.subscribe(*nh, camera_info_topic, 1);
   obj_sub = nh->subscribe("ObjectList", 1, &MegaPoseClient::frameObject, this);
-  pub_pose = nh->advertise
+  pub_pose = nh->advertise<visp_megapose::PoseResult>("PoseResult", 1, true);
 
   if (!depth_enable)
   {
@@ -320,7 +320,7 @@ void MegaPoseClient::track_service_response_callback(const visp_megapose::Track:
               visp_megapose::PoseResult res;
               res.pose = transform;
               res.skip = true;
-              pub_pose_.publish(res);
+              pub_pose.publish(res);
               object_found = object_found + 1;
               ROS_INFO("Object %s found! Pose: [%f, %f, %f, %f, %f, %f, %f] ", object_name.c_str(), transform.translation.x, transform.translation.y, transform.translation.z, transform.rotation.x, transform.rotation.y, transform.rotation.z, transform.rotation.w);
               ROS_INFO("Pose confidence: %f: ", confidence);
