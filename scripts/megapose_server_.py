@@ -17,15 +17,15 @@ assert Path(main_folder).absolute().exists(), 'Main_folder directory does not ex
 os.environ['MEGAPOSE_DATA_DIR'] = main_folder + "/megapose_server/megapose6d/data"
 
 # MegaPose
-from megapose.datasets.object_dataset import RigidObject, RigidObjectDataset
-from megapose.datasets.scene_dataset import CameraData, ObjectData
-from megapose.inference.types import ObservationTensor, PoseEstimatesType
-from megapose.inference.utils import make_detections_from_object_data
-from megapose.utils.load_model import NAMED_MODELS, load_named_model
-from megapose.lib3d.transform import Transform
-from megapose.utils.conversion import convert_scene_observation_to_panda3d
-from megapose.panda3d_renderer import Panda3dLightData
-from megapose.panda3d_renderer.panda3d_scene_renderer import Panda3dSceneRenderer
+from megapose.datasets.object_dataset import RigidObject, RigidObjectDataset # type: ignore
+from megapose.datasets.scene_dataset import CameraData, ObjectData # type: ignore
+from megapose.inference.types import ObservationTensor, PoseEstimatesType # type: ignore
+from megapose.inference.utils import make_detections_from_object_data # type: ignore
+from megapose.utils.load_model import NAMED_MODELS, load_named_model # type: ignore
+from megapose.lib3d.transform import Transform # type: ignore
+from megapose.utils.conversion import convert_scene_observation_to_panda3d # type: ignore
+from megapose.panda3d_renderer import Panda3dLightData # type: ignore
+from megapose.panda3d_renderer.panda3d_scene_renderer import Panda3dSceneRenderer # type: ignore
 
 # Load camera information, can be generated with ros_imresize node
 data = json.loads(open(megapose_folder + '/params/camera.json').read())
