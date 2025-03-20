@@ -10,7 +10,7 @@ object_name: "box1",                       # Set the object to be detected
 
 reset_bb: True,                            # Set the 2d bounding box manually
 
-depth_enable: True,                        # Enable depth image
+depth_enable: False,                        # Enable depth image
 
 depth_topic: "/camera/aligned_depth_to_color/image_raw",  # Set the depth image topic
 

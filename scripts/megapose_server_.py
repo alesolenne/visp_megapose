@@ -306,11 +306,7 @@ class MegaPoseServer:
         response.pose.rotation.z = rotation[3]
         response.pose.rotation.w = rotation[0]
         response.confidence = float(confidence[0])
-        response.bb1 = bounding_boxes[0][0]
-        response.bb2 = bounding_boxes[0][1]
-        response.bb3 = bounding_boxes[0][2]
-        response.bb4 = bounding_boxes[0][3]
-
+        response.bb = bounding_boxes[0]
         return response
     
     def RenderObjectCallback(self, request):

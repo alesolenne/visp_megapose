@@ -8,8 +8,9 @@ int16 bottomright_j
 # The image in which to track the object.
 sensor_msgs/Image image
 sensor_msgs/Image depth
+# The camera parameters.
 sensor_msgs/CameraInfo camera_info
-# Enable depth info
+# Enable depth info.
 bool depth_enable
 ---
 # The result of the pose estimation.
