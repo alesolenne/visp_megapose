@@ -347,7 +347,7 @@ class MegaPoseServer:
         img = renderings.rgb
         img = np.uint8(img).reshape(1, -1).tolist()[0]
 
-        response = Image()
+        response = RenderResponse()
         response.header.stamp = rospy.Time.now()
         response.height = renderings.rgb.shape[0]
         response.width = renderings.rgb.shape[1]
