@@ -671,73 +671,65 @@ void MegaPoseClient::BB3DCallback(const visp_megapose::BB3D &bb3d)
   double dim_y = bb3d.dim_y;
   double dim_z = bb3d.dim_z;
 
-  double p1_x = dim_x / 2;
-  double p2_x = - dim_x / 2;
-
-  double p1_y = dim_y / 2;
-  double p2_y = - dim_y / 2;
-
-  double p1_z = dim_z / 2;
-  double p2_z = - dim_z / 2;
-
   Eigen::Matrix4f T = Eigen::Matrix4f::Identity();
-  T.block(0,0,3,3) = Eigen::Quaternionf(bb3d.pose.rotation.w, bb3d.pose.rotation.x, bb3d.pose.rotation.y, bb3d.pose.rotation.z).toRotationMatrix();;
-  T(0,3) = bb3d.pose.translation.x;
-  T(1,3) = bb3d.pose.translation.y;
-  T(2,3) = bb3d.pose.translation.z;
+  Eigen::Quaternionf q(bb3d.pose.rotation.w, bb3d.pose.rotation.x, bb3d.pose.rotation.y, bb3d.pose.rotation.z);
+  T.block<3,3>(0,0) = q.toRotationMatrix();
+  T.block<3,1>(0,3) << bb3d.pose.translation.x, bb3d.pose.translation.y, bb3d.pose.translation.z;
 
-  Eigen::Vector4f p1 (p1_x, p2_y, p2_z, 1);
-  Eigen::Vector4f p2 (p1_x, p1_y, p2_z, 1);
-  Eigen::Vector4f p3 (p2_x, p1_y, p2_z, 1);
-  Eigen::Vector4f p4 (p1_x, p1_y, p1_z, 1);
-  Eigen::Vector4f p5 (p1_x, p2_y, p1_z, 1);
-  Eigen::Vector4f p6 (p2_x, p2_y, p2_z, 1);
-  Eigen::Vector4f p7 (p2_x, p1_y, p1_z, 1);
-  Eigen::Vector4f p8 (p2_x, p2_y, p1_z, 1);
+  Eigen::Vector4f p1 ( dim_x / 2,  dim_y / 2,  dim_z / 2, 1);
+  Eigen::Vector4f p2 ( dim_x / 2,  dim_y / 2, -dim_z / 2, 1);
+  Eigen::Vector4f p3 ( dim_x / 2, -dim_y / 2,  dim_z / 2, 1);
+  Eigen::Vector4f p4 ( dim_x / 2, -dim_y / 2, -dim_z / 2, 1);
+  Eigen::Vector4f p5 (-dim_x / 2,  dim_y / 2,  dim_z / 2, 1);
+  Eigen::Vector4f p6 (-dim_x / 2,  dim_y / 2, -dim_z / 2, 1);
+  Eigen::Vector4f p7 (-dim_x / 2, -dim_y / 2,  dim_z / 2, 1);
+  Eigen::Vector4f p8 (-dim_x / 2, -dim_y / 2, -dim_z / 2, 1);
 
-  cv::Mat E = cv::Mat::eye(4, 4, CV_64F);
-  E(cv::Range(0,2), cv::Range(0,2)) = cv::Mat::zeros(2,2, CV_64F);
-  cout<<E<<endl;
+  // Transform 3D points to camera coordinates
+  std::vector<Eigen::Vector4f> points = {p1, p2, p3, p4, p5, p6, p7, p8};
+  std::vector<cv::Point3f> object_points;
+  for (const auto& point : points) {
+    Eigen::Vector4f transformed_point = T * point;
+    object_points.emplace_back(transformed_point(0), transformed_point(1), transformed_point(2));
+  }
 
+  // Camera matrix and distortion coefficients
+  cv::Mat cam_matrix = (cv::Mat_<double>(3, 3) << roscam_info->K[0], roscam_info->K[1], roscam_info->K[2], 
+                                                  roscam_info->K[3], roscam_info->K[4], roscam_info->K[5], 
+                                                  roscam_info->K[6], roscam_info->K[7], roscam_info->K[8]);
+  cv::Mat distortion;
+  if (roscam_info->distortion_model == "plumb_bob") {
+    distortion = (cv::Mat_<double>(1, 5) << roscam_info->D[0], roscam_info->D[1], roscam_info->D[2], roscam_info->D[3], roscam_info->D[4]);
+  } else if (roscam_info->distortion_model == "rational_polynomial") {
+    distortion = (cv::Mat_<double>(1, 8) << roscam_info->D[0], roscam_info->D[1], roscam_info->D[2], roscam_info->D[3], roscam_info->D[4], roscam_info->D[5], roscam_info->D[6], roscam_info->D[7]);
+  } else {
+    ROS_WARN("Unknown distortion model: %s", roscam_info->distortion_model.c_str());
+    distortion = cv::Mat::zeros(1, 5, CV_64F); // Default to zero distortion if unknown model
+  }
 
-  // r_vec = np.array([0.0, 0.0, 0.0])
-  // t_vec = np.array([0.0, 0.0, 0.0])
+  // Project 3D points to 2D image plane
+  std::vector<cv::Point2f> image_points;
+  cv::projectPoints(object_points, cv::Vec3d::zeros(), cv::Vec3d::zeros(), cam_matrix, distortion, image_points);
 
-  // coords = np.array([p1_c[0:3], p2_c[0:3], p3_c[0:3], p4_c[0:3], p5_c[0:3], p6_c[0:3], p7_c[0:3], p8_c[0:3],])
+  // Initialize bounding box coordinates
+  float u_p_min = std::numeric_limits<float>::max();
+  float v_p_min = std::numeric_limits<float>::max();
+  float u_p_max = std::numeric_limits<float>::lowest();
+  float v_p_max = std::numeric_limits<float>::lowest();
 
-  // cam_matrix = np.array([[385.76629638671875, 0, 313.4191589355469], [0, 385.35888671875, 244.85601806640625], [0, 0, 1]])
-  // distortion = np.array([-0.05377520993351936, 0.06127079576253891, -0.00161056499928236, 0.0007866412051953375, -0.019219011068344116])
+  // Calculate bounding box coordinates
+  for (const auto& point : image_points) {
+    u_p_min = std::min(u_p_min, point.x);
+    v_p_min = std::min(v_p_min, point.y);
+    u_p_max = std::max(u_p_max, point.x);
+    v_p_max = std::max(v_p_max, point.y);
+  }
 
-  // points_2d = cv2.projectPoints(coords, r_vec, t_vec, cam_matrix, distortion)[0]
+  // Output bounding box coordinates
+  ROS_INFO("Bounding box coordinates: (%f, %f) to (%f, %f)", v_p_min, u_p_min, v_p_max, u_p_max);
 
-  // u1_p = points_2d[0][0][0]
-  // u2_p = points_2d[1][0][0]
-  // u3_p = points_2d[2][0][0]
-  // u4_p = points_2d[3][0][0]
-  // u5_p = points_2d[4][0][0]
-  // u6_p = points_2d[5][0][0]
-  // u7_p = points_2d[6][0][0]
-  // u8_p = points_2d[7][0][0]
-
-  // v1_p = points_2d[0][0][1]
-  // v2_p = points_2d[1][0][1]
-  // v3_p = points_2d[2][0][1]
-  // v4_p = points_2d[3][0][1]
-  // v5_p = points_2d[4][0][1]
-  // v6_p = points_2d[5][0][1]
-  // v7_p = points_2d[6][0][1]
-  // v8_p = points_2d[7][0][1]
-
-  // u_p_min =  min(u1_p, u2_p, u3_p, u4_p, u5_p ,u6_p ,u7_p, u8_p)
-  // v_p_min =  min(v1_p, v2_p, v3_p, v4_p, v5_p ,v6_p ,v7_p, v8_p)
-
-  // u_p_max =  max(u1_p, u2_p, u3_p, u4_p, u5_p ,u6_p ,u7_p, u8_p)
-  // v_p_max =  max(v1_p, v2_p, v3_p, v4_p, v5_p ,v6_p ,v7_p, v8_p)
-
-  // print(v_p_min, u_p_min)
-  // print(v_p_max, u_p_max)
-  
-  // got_bb3d = true;
+  // Set flag indicating bounding box received
+  got_bb3d = true;
 
 }
 
