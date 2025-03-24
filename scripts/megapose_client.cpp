@@ -696,8 +696,8 @@ void MegaPoseClient::BB3DCallback(const visp_megapose::BB3D &bb3d)
   Eigen::Vector4f p8 (p2_x, p2_y, p1_z, 1);
 
   cv::Mat E = cv::Mat::eye(4, 4, CV_64F);
+  E(cv::Range(0,2), cv::Range(0,2)) = cv::Mat::zeros(2,2, CV_64F);
   cout<<E<<endl;
-
 
 
   // r_vec = np.array([0.0, 0.0, 0.0])
