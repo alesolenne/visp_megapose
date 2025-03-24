@@ -3,6 +3,8 @@
 #include <iostream>
 #include <nlohmann/json.hpp>
 #include <stdio.h>
+#include <Eigen/Dense>
+#include <opencv2/opencv.hpp>
 
 // visp includes
 #include <visp3/core/vpTime.h>
@@ -17,6 +19,7 @@
 #include <ros/ros.h>
 #include <tf2_ros/transform_broadcaster.h>
 #include <sensor_msgs/Image.h>
+#include <visp_megapose/BB3D.h>
 
 // ROS visp_megapose Server includes
 #include <visp_megapose/Init.h>
@@ -34,6 +37,18 @@
 using namespace std;
 using namespace nlohmann;
 
+enum DetectionMethod
+{
+  UNKNOWN,
+  CLICK,
+  BB3D
+};
+
+std::map<std::string, DetectionMethod> stringToDetectionMethod = {
+    {"UNKNOWN", UNKNOWN},
+    {"CLICK", CLICK},
+    {"BB3D", BB3D}};
+
 class MegaPoseClient 
 {
   private:
@@ -48,6 +63,8 @@ class MegaPoseClient
   string camera_tf;
   string object_name;
   string depth_topic;
+  string bb3d_topic;
+  string detector_method;
   bool depth_enable;
   bool reset_bb;
   double reinitThreshold;
@@ -64,6 +81,7 @@ class MegaPoseClient
   bool overlayModel;
   bool got_image;
   bool got_depth;
+  bool got_bb3d;
   double confidence;
   unsigned width, height, widthD, heightD;
 
@@ -97,10 +115,13 @@ class MegaPoseClient
   boost::shared_ptr<message_filters::Synchronizer<SyncPolicyRGB> > sync_rgb;
   boost::shared_ptr<message_filters::Synchronizer<SyncPolicyRGBD> > sync_rgbd;
 
+  ros::Subscriber bb3d_sub;
+
   // Functions
 
   void waitForImage();
   void waitForDepth();
+  void waitForBB3D();
   void frameCallback_rgb(const sensor_msgs::ImageConstPtr &image, const sensor_msgs::CameraInfoConstPtr &camera_info);
   void frameCallback_rgbd(const sensor_msgs::ImageConstPtr &image, const sensor_msgs::CameraInfoConstPtr &cam_info, const sensor_msgs::ImageConstPtr &depth);
   void broadcastTransform(const geometry_msgs::Transform &transform, const string &child_frame_id, const string &camera_tf);
@@ -111,10 +132,14 @@ class MegaPoseClient
   void displayEvent(const optional<vpRect> &detection);
   vpColor interpolate(const vpColor &low, const vpColor &high, const float f);
   optional<vpRect> detectObjectForInitMegaposeClick(bool &reset_bb, const string &object_name);
+  optional<vpRect> detectObjectForInitMegaposeBB3D(const string &object_name);
+  DetectionMethod getDetectionMethodFromString(const std::string &str);
 
-  void init_service_response_callback(const visp_megapose::Init::Response& future);
-  void track_service_response_callback(const visp_megapose::Track::Response& future);
-  void render_service_response_callback(const visp_megapose::Render::Response& future);
+  void init_service_response_callback(const visp_megapose::Init::Response &future);
+  void track_service_response_callback(const visp_megapose::Track::Response &future);
+  void render_service_response_callback(const visp_megapose::Render::Response &future);
+
+  void BB3DCallback(const visp_megapose::BB3D &bb3d);
 
 public:
 MegaPoseClient(ros::NodeHandle *nh) 
@@ -131,6 +156,8 @@ MegaPoseClient(ros::NodeHandle *nh)
  //     reinitThreshold(double) : Reinit threshold for init and track service
  //     refilterThreshold(double) : Filter threshold for filter poses
  //     buffer_size(int) : Buffer size for filter poses
+ //     detector_method(string) : Detector method to generate initial bounding box
+ //     bb3d_topic(string) : Name of the topic where are published the 3d bounding boxes
 
   this->nh_ = *nh;
   char username[32];
@@ -141,6 +168,8 @@ MegaPoseClient(ros::NodeHandle *nh)
   initialized = false;
   init_request_done = true;
   got_image = false;
+  got_depth = false;
+  got_bb3d = false;
   overlayModel = false;
   show_init_bb = false;
   show_track_bb = false;
@@ -158,9 +187,22 @@ MegaPoseClient(ros::NodeHandle *nh)
   ros::param::get("reinitThreshold", reinitThreshold);
   ros::param::get("refilterThreshold", refilterThreshold);
   ros::param::get("buffer_size", buffer_size);
+  ros::param::get("detector_method", detector_method);
+  ros::param::get("bb3d_topic", bb3d_topic);
 
   image_sub.subscribe(*nh, image_topic, 1);
   camera_info_sub.subscribe(*nh, camera_info_topic, 1);
+
+  if (getDetectionMethodFromString(detector_method) == UNKNOWN)
+  {
+    ROS_WARN("Unknown detection method. Exiting.");
+    ros::shutdown();
+  }
+  else if (getDetectionMethodFromString(detector_method) == BB3D)
+  {
+    bb3d_sub = nh->subscribe(bb3d_topic, 1, &MegaPoseClient::BB3DCallback, this);
+  }
+  
 
   if (!depth_enable)
   {
@@ -211,6 +253,22 @@ void MegaPoseClient::waitForDepth()
      loop_rate.sleep();
    }
  }
+
+void MegaPoseClient::waitForBB3D()
+{
+  ros::Rate loop_rate(10);
+  ROS_INFO("Waiting for BB3D message...");
+  while (ros::ok())
+  {
+    if (got_bb3d)
+    {
+      ROS_INFO("Got 3d bounding box!");
+      return;
+    }
+    ros::spinOnce();
+    loop_rate.sleep();
+  }
+}
 
 void MegaPoseClient::frameCallback_rgb(const sensor_msgs::ImageConstPtr &image, const sensor_msgs::CameraInfoConstPtr &cam_info)
 {
@@ -486,15 +544,54 @@ optional<vpRect> MegaPoseClient::detectObjectForInitMegaposeClick(bool &reset_bb
      json bb_in;
      bb_file >> bb_in;
 
-     topLeft= vpImagePoint(bb_in["point1"][0], bb_in["point1"][1]);
-     bottomRight=vpImagePoint(bb_in["point2"][0], bb_in["point2"][0]);
+     topLeft = vpImagePoint(bb_in["point1"][0], bb_in["point1"][1]);
+     bottomRight = vpImagePoint(bb_in["point2"][0], bb_in["point2"][0]);
      vpRect bb(topLeft, bottomRight);
      bb_file.close();
      return bb;
   }
 }
 
-void MegaPoseClient::init_service_response_callback(const visp_megapose::Init::Response& future)
+optional<vpRect> MegaPoseClient::detectObjectForInitMegaposeBB3D(const string &object_name)
+{ 
+     vpImagePoint topLeft, bottomRight;
+
+     topLeft = vpImagePoint(0, 0);
+     bottomRight = vpImagePoint(0, 0);
+     vpRect bb(topLeft, bottomRight);
+
+     ofstream bb_file(megapose_directory + "/output/bb/" + object_name + "_bb.json", ios::out);
+     json bb_out;
+
+     int a = topLeft.get_i();
+     int b = topLeft.get_j();
+     int c = bottomRight.get_i();
+     int d = bottomRight.get_j();
+
+     int point1 [1][2] = {a, b};
+     int point2 [1][2] = {c, d};
+
+     bb_out["object_name"] = object_name;
+     bb_out["point1"] = point1[0];
+     bb_out["point2"] = point2[0];
+
+     bb_file << bb_out.dump(4);
+     bb_file.close();
+
+     return bb;
+
+}
+
+DetectionMethod MegaPoseClient::getDetectionMethodFromString(const std::string &str)
+{
+  if (stringToDetectionMethod.find(str) != stringToDetectionMethod.end())
+  {
+    return stringToDetectionMethod[str];
+  }
+  return UNKNOWN;
+};
+
+void MegaPoseClient::init_service_response_callback(const visp_megapose::Init::Response &future)
 {
   transform = future.pose;
   confidence = future.confidence;
@@ -524,7 +621,7 @@ void MegaPoseClient::init_service_response_callback(const visp_megapose::Init::R
   }
 }
 
-void MegaPoseClient::track_service_response_callback(const visp_megapose::Track::Response& future)
+void MegaPoseClient::track_service_response_callback(const visp_megapose::Track::Response &future)
 {
   transform = future.pose;
   confidence = future.confidence;
@@ -548,7 +645,7 @@ void MegaPoseClient::track_service_response_callback(const visp_megapose::Track:
   }
 }
 
-void MegaPoseClient::render_service_response_callback(const visp_megapose::Render::Response& future)
+void MegaPoseClient::render_service_response_callback(const visp_megapose::Render::Response &future)
 {
   overlay_img = visp_bridge::toVispImageRGBa(future.image);
   if (overlay_img.getSize() > 0){
@@ -558,6 +655,90 @@ void MegaPoseClient::render_service_response_callback(const visp_megapose::Rende
       flag_render = true; //print only once
     }
   }
+}
+
+void MegaPoseClient::BB3DCallback(const visp_megapose::BB3D &bb3d)
+{
+
+  // if (condition)
+  // {
+  //   /* code */
+  // }
+
+  // Convert 3D bounding box to 2D bounding box
+
+  double dim_x = bb3d.dim_x;
+  double dim_y = bb3d.dim_y;
+  double dim_z = bb3d.dim_z;
+
+  double p1_x = dim_x / 2;
+  double p2_x = - dim_x / 2;
+
+  double p1_y = dim_y / 2;
+  double p2_y = - dim_y / 2;
+
+  double p1_z = dim_z / 2;
+  double p2_z = - dim_z / 2;
+
+  Eigen::Matrix4f T = Eigen::Matrix4f::Identity();
+  T.block(0,0,3,3) = Eigen::Quaternionf(bb3d.pose.rotation.w, bb3d.pose.rotation.x, bb3d.pose.rotation.y, bb3d.pose.rotation.z).toRotationMatrix();;
+  T(0,3) = bb3d.pose.translation.x;
+  T(1,3) = bb3d.pose.translation.y;
+  T(2,3) = bb3d.pose.translation.z;
+
+  Eigen::Vector4f p1 (p1_x, p2_y, p2_z, 1);
+  Eigen::Vector4f p2 (p1_x, p1_y, p2_z, 1);
+  Eigen::Vector4f p3 (p2_x, p1_y, p2_z, 1);
+  Eigen::Vector4f p4 (p1_x, p1_y, p1_z, 1);
+  Eigen::Vector4f p5 (p1_x, p2_y, p1_z, 1);
+  Eigen::Vector4f p6 (p2_x, p2_y, p2_z, 1);
+  Eigen::Vector4f p7 (p2_x, p1_y, p1_z, 1);
+  Eigen::Vector4f p8 (p2_x, p2_y, p1_z, 1);
+
+  cv::Mat E = cv::Mat::eye(4, 4, CV_64F);
+  cout<<E<<endl;
+
+
+
+  // r_vec = np.array([0.0, 0.0, 0.0])
+  // t_vec = np.array([0.0, 0.0, 0.0])
+
+  // coords = np.array([p1_c[0:3], p2_c[0:3], p3_c[0:3], p4_c[0:3], p5_c[0:3], p6_c[0:3], p7_c[0:3], p8_c[0:3],])
+
+  // cam_matrix = np.array([[385.76629638671875, 0, 313.4191589355469], [0, 385.35888671875, 244.85601806640625], [0, 0, 1]])
+  // distortion = np.array([-0.05377520993351936, 0.06127079576253891, -0.00161056499928236, 0.0007866412051953375, -0.019219011068344116])
+
+  // points_2d = cv2.projectPoints(coords, r_vec, t_vec, cam_matrix, distortion)[0]
+
+  // u1_p = points_2d[0][0][0]
+  // u2_p = points_2d[1][0][0]
+  // u3_p = points_2d[2][0][0]
+  // u4_p = points_2d[3][0][0]
+  // u5_p = points_2d[4][0][0]
+  // u6_p = points_2d[5][0][0]
+  // u7_p = points_2d[6][0][0]
+  // u8_p = points_2d[7][0][0]
+
+  // v1_p = points_2d[0][0][1]
+  // v2_p = points_2d[1][0][1]
+  // v3_p = points_2d[2][0][1]
+  // v4_p = points_2d[3][0][1]
+  // v5_p = points_2d[4][0][1]
+  // v6_p = points_2d[5][0][1]
+  // v7_p = points_2d[6][0][1]
+  // v8_p = points_2d[7][0][1]
+
+  // u_p_min =  min(u1_p, u2_p, u3_p, u4_p, u5_p ,u6_p ,u7_p, u8_p)
+  // v_p_min =  min(v1_p, v2_p, v3_p, v4_p, v5_p ,v6_p ,v7_p, v8_p)
+
+  // u_p_max =  max(u1_p, u2_p, u3_p, u4_p, u5_p ,u6_p ,u7_p, u8_p)
+  // v_p_max =  max(v1_p, v2_p, v3_p, v4_p, v5_p ,v6_p ,v7_p, v8_p)
+
+  // print(v_p_min, u_p_min)
+  // print(v_p_max, u_p_max)
+  
+  // got_bb3d = true;
+
 }
 
 void MegaPoseClient::spin()
@@ -572,6 +753,13 @@ void MegaPoseClient::spin()
      ROS_INFO("Subscribing to depth topic: %s", depth_topic.c_str());
      waitForDepth();
    }
+  if (getDetectionMethodFromString(detector_method) == BB3D)
+  {
+    ROS_INFO("Subscribing to BB3D topic: %s", bb3d_topic.c_str());
+    waitForBB3D();
+    bb3d_sub.shutdown();
+  }
+  
 
   vpDisplayX *d = NULL;
   d = new vpDisplayX();
@@ -594,20 +782,29 @@ void MegaPoseClient::spin()
   while (ros::ok()) {
     vpDisplay::display(vpI);
     ros::spinOnce();
-    optional<vpRect> detection = nullopt;
 
     if (!initialized) {
 
-       buffer_x.clear();
-       buffer_y.clear();
-       buffer_z.clear();
-       buffer_qw.clear();
-       buffer_qx.clear();
-       buffer_qy.clear();
-       buffer_qz.clear();
-       
-       detection = detectObjectForInitMegaposeClick(reset_bb, object_name);
-       
+      optional<vpRect> detection = nullopt;
+
+      buffer_x.clear();
+      buffer_y.clear();
+      buffer_z.clear();
+      buffer_qw.clear();
+      buffer_qx.clear();
+      buffer_qy.clear();
+      buffer_qz.clear();
+
+      if (getDetectionMethodFromString(detector_method) == BB3D)
+      {
+        detection = detectObjectForInitMegaposeBB3D(object_name);
+      }
+
+      else if (getDetectionMethodFromString(detector_method) == CLICK)
+      {
+        detection = detectObjectForInitMegaposeClick(reset_bb, object_name);
+      }
+              
       if (detection && init_request_done) {
 
         visp_megapose::Init init_pose;
