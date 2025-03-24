@@ -1,5 +1,0 @@
-{
-image_topic: "/usb_cam/image_raw",        # Set the image topic
-
-reset_bb: True                            # Set the 2d bounding box manually
-}

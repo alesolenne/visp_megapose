@@ -224,7 +224,7 @@ class MegaPoseServer:
                 return
 
         object_name = [request.object_name]
-        detections = [[request.topleft_j,request.topleft_i , request.bottomright_j, request.bottomright_i ]]
+        detections = [[request.topleft_j, request.topleft_i , request.bottomright_j, request.bottomright_i ]]
         detections = self._make_detections(object_name, detections).cuda()
         observation = self._make_observation_tensor(img, depth).cuda()
         inference_params = self.model_info['inference_parameters'].copy()

@@ -96,6 +96,7 @@ class MegaPoseClient
 
   // ROS variables
   sensor_msgs::CameraInfoConstPtr roscam_info;
+  visp_megapose::BB3D bb3d_msg;
 
   boost::shared_ptr<const sensor_msgs::Image> rosI; 
   boost::shared_ptr<const sensor_msgs::Image> rosD; 
@@ -132,7 +133,7 @@ class MegaPoseClient
   void displayEvent(const optional<vpRect> &detection);
   vpColor interpolate(const vpColor &low, const vpColor &high, const float f);
   optional<vpRect> detectObjectForInitMegaposeClick(bool &reset_bb, const string &object_name);
-  optional<vpRect> detectObjectForInitMegaposeBB3D(const string &object_name);
+  optional<vpRect> detectObjectForInitMegaposeBB3D(const visp_megapose::BB3D &bb_msg);
   DetectionMethod getDetectionMethodFromString(const std::string &str);
 
   void init_service_response_callback(const visp_megapose::Init::Response &future);
@@ -262,7 +263,7 @@ void MegaPoseClient::waitForBB3D()
   {
     if (got_bb3d)
     {
-      ROS_INFO("Got 3d bounding box!");
+      ROS_INFO("Got the bounding box!");
       return;
     }
     ros::spinOnce();
@@ -440,8 +441,14 @@ void MegaPoseClient::displayEvent(const optional<vpRect> &detection)
 
   if (show_init_bb) {
 
-    vpImagePoint init_topLeft(detection->getTopLeft().get_i(), detection->getTopLeft().get_j());
-    vpImagePoint init_bottomRight(detection->getBottomRight().get_i(),detection->getBottomRight().get_j());
+    ifstream bb_file(megapose_directory + "/output/bb/" + object_name + "_bb.json", ios::in);
+    json bb_in;
+    bb_file >> bb_in;
+
+    vpImagePoint init_topLeft(bb_in["point1"][0], bb_in["point1"][1]);
+    vpImagePoint init_bottomRight(bb_in["point2"][0], bb_in["point2"][1]);
+    bb_file.close();
+
     vpDisplay::displayRectangle(vpI, init_topLeft, init_bottomRight, vpColor::blue, false, 2);
     
     if (keyboardEvent == "n") {
@@ -512,16 +519,16 @@ optional<vpRect> MegaPoseClient::detectObjectForInitMegaposeClick(bool &reset_bb
        vpDisplay::displayText(vpI, textPosition, "Click the bottom right corner of the bounding box", vpColor::red);
        vpDisplay::flush(vpI);
        vpDisplay::getClick(vpI, bottomRight, true);
-       int a = topLeft.get_i();
-       int b = topLeft.get_j();
-       int c = bottomRight.get_i();
-       int d = bottomRight.get_j();
+       float a = topLeft.get_i();
+       float b = topLeft.get_j();
+       float c = bottomRight.get_i();
+       float d = bottomRight.get_j();
 
        ofstream bb_file(megapose_directory + "/output/bb/" + object_name + "_bb.json", ios::out);
        json bb_out;
 
-       int point1 [1][2] = {a, b};
-       int point2 [1][2] = {c, d};
+       float point1 [1][2] = {a, b};
+       float point2 [1][2] = {c, d};
 
        bb_out["object_name"] = object_name;
        bb_out["point1"] = point1[0];
@@ -545,40 +552,96 @@ optional<vpRect> MegaPoseClient::detectObjectForInitMegaposeClick(bool &reset_bb
      bb_file >> bb_in;
 
      topLeft = vpImagePoint(bb_in["point1"][0], bb_in["point1"][1]);
-     bottomRight = vpImagePoint(bb_in["point2"][0], bb_in["point2"][0]);
+     bottomRight = vpImagePoint(bb_in["point2"][0], bb_in["point2"][1]);
      vpRect bb(topLeft, bottomRight);
      bb_file.close();
      return bb;
   }
 }
 
-optional<vpRect> MegaPoseClient::detectObjectForInitMegaposeBB3D(const string &object_name)
+optional<vpRect> MegaPoseClient::detectObjectForInitMegaposeBB3D(const visp_megapose::BB3D &bb_msg)
 { 
-     vpImagePoint topLeft, bottomRight;
+    double dim_x = bb3d_msg.dim_x;
+    double dim_y = bb3d_msg.dim_y;
+    double dim_z = bb3d_msg.dim_z;
 
-     topLeft = vpImagePoint(0, 0);
-     bottomRight = vpImagePoint(0, 0);
-     vpRect bb(topLeft, bottomRight);
+    Eigen::Matrix4f T = Eigen::Matrix4f::Identity();
+    Eigen::Quaternionf q(bb3d_msg.pose.rotation.w, bb3d_msg.pose.rotation.x, bb3d_msg.pose.rotation.y, bb3d_msg.pose.rotation.z);
+    T.block<3,3>(0,0) = q.toRotationMatrix();
+    T.block<3,1>(0,3) << bb3d_msg.pose.translation.x, bb3d_msg.pose.translation.y, bb3d_msg.pose.translation.z;
 
-     ofstream bb_file(megapose_directory + "/output/bb/" + object_name + "_bb.json", ios::out);
-     json bb_out;
+    Eigen::Vector4f p1 ( dim_x / 2,  dim_y / 2,  dim_z / 2, 1);
+    Eigen::Vector4f p2 ( dim_x / 2,  dim_y / 2, -dim_z / 2, 1);
+    Eigen::Vector4f p3 ( dim_x / 2, -dim_y / 2,  dim_z / 2, 1);
+    Eigen::Vector4f p4 ( dim_x / 2, -dim_y / 2, -dim_z / 2, 1);
+    Eigen::Vector4f p5 (-dim_x / 2,  dim_y / 2,  dim_z / 2, 1);
+    Eigen::Vector4f p6 (-dim_x / 2,  dim_y / 2, -dim_z / 2, 1);
+    Eigen::Vector4f p7 (-dim_x / 2, -dim_y / 2,  dim_z / 2, 1);
+    Eigen::Vector4f p8 (-dim_x / 2, -dim_y / 2, -dim_z / 2, 1);
 
-     int a = topLeft.get_i();
-     int b = topLeft.get_j();
-     int c = bottomRight.get_i();
-     int d = bottomRight.get_j();
+    // Transform 3D points to camera coordinates
+    std::vector<Eigen::Vector4f> points = {p1, p2, p3, p4, p5, p6, p7, p8};
+    std::vector<cv::Point3f> object_points(points.size());
+    for (size_t i = 0; i < points.size(); ++i) {
+      Eigen::Vector4f transformed_point = T * points[i];
+      object_points[i] = cv::Point3f(transformed_point(0), transformed_point(1), transformed_point(2));
+    }
 
-     int point1 [1][2] = {a, b};
-     int point2 [1][2] = {c, d};
+    // Camera matrix and distortion coefficients
+    cv::Mat cam_matrix = (cv::Mat_<double>(3, 3) << roscam_info->K[0], roscam_info->K[1], roscam_info->K[2], 
+                roscam_info->K[3], roscam_info->K[4], roscam_info->K[5], 
+                roscam_info->K[6], roscam_info->K[7], roscam_info->K[8]);
+    cv::Mat distortion;
+    if (roscam_info->distortion_model == "plumb_bob") {
+      distortion = (cv::Mat_<double>(1, 5) << roscam_info->D[0], roscam_info->D[1], roscam_info->D[2], roscam_info->D[3], roscam_info->D[4]);
+    } else if (roscam_info->distortion_model == "rational_polynomial") {
+      distortion = (cv::Mat_<double>(1, 8) << roscam_info->D[0], roscam_info->D[1], roscam_info->D[2], roscam_info->D[3], roscam_info->D[4], roscam_info->D[5], roscam_info->D[6], roscam_info->D[7]);
+    } else {
+      ROS_WARN("Unknown distortion model: %s", roscam_info->distortion_model.c_str());
+      distortion = cv::Mat::zeros(1, 5, CV_64F); // Default to zero distortion if unknown model
+    }
 
-     bb_out["object_name"] = object_name;
-     bb_out["point1"] = point1[0];
-     bb_out["point2"] = point2[0];
+    // Project 3D points to 2D image plane
+    std::vector<cv::Point2f> image_points;
+    cv::projectPoints(object_points, cv::Vec3d::zeros(), cv::Vec3d::zeros(), cam_matrix, distortion, image_points);
 
-     bb_file << bb_out.dump(4);
-     bb_file.close();
+    // Initialize bounding box coordinates
+    float u_p_min = std::numeric_limits<float>::max();
+    float v_p_min = std::numeric_limits<float>::max();
+    float u_p_max = std::numeric_limits<float>::lowest();
+    float v_p_max = std::numeric_limits<float>::lowest();
 
-     return bb;
+    // Calculate bounding box coordinates
+    for (const auto& point : image_points) {
+      u_p_min = std::min(u_p_min, point.x);
+      v_p_min = std::min(v_p_min, point.y);
+      u_p_max = std::max(u_p_max, point.x);
+      v_p_max = std::max(v_p_max, point.y);
+    }
+
+    // Output bounding box coordinates
+    ROS_INFO("2D Bounding box coordinates convertion: (%f, %f) to (%f, %f)", v_p_min, u_p_min, v_p_max, u_p_max);
+
+    vpImagePoint topLeft, bottomRight;
+
+    topLeft = vpImagePoint(v_p_min, u_p_min);
+    bottomRight = vpImagePoint(v_p_max, u_p_max);
+    vpRect bb(topLeft, bottomRight);
+
+    ofstream bb_file(megapose_directory + "/output/bb/" + object_name + "_bb.json", ios::out);
+    json bb_out;
+
+    float point1 [1][2] = {v_p_min, u_p_min};
+    float point2 [1][2] = {v_p_max, u_p_max};
+
+    bb_out["object_name"] = object_name;
+    bb_out["point1"] = point1[0];
+    bb_out["point2"] = point2[0];
+
+    bb_file << bb_out.dump(4);
+    bb_file.close();
+
+    return bb;
 
 }
 
@@ -625,10 +688,7 @@ void MegaPoseClient::track_service_response_callback(const visp_megapose::Track:
 {
   transform = future.pose;
   confidence = future.confidence;
-  bb[0] = future.bb[0];
-  bb[1] = future.bb[1];
-  bb[2] = future.bb[2];
-  bb[3] = future.bb[3];
+  std::copy(std::begin(future.bb), std::end(future.bb), std::begin(bb));
 
   if (confidence < reinitThreshold) {
       initialized = false;
@@ -667,68 +727,14 @@ void MegaPoseClient::BB3DCallback(const visp_megapose::BB3D &bb3d)
 
   // Convert 3D bounding box to 2D bounding box
 
-  double dim_x = bb3d.dim_x;
-  double dim_y = bb3d.dim_y;
-  double dim_z = bb3d.dim_z;
+  ROS_INFO("3D Bounding box pose: Translation (%f, %f, %f), Rotation (%f, %f, %f, %f), Dimensions: (%f, %f, %f)", 
+           bb3d.pose.translation.x, bb3d.pose.translation.y, bb3d.pose.translation.z, 
+           bb3d.pose.rotation.x, bb3d.pose.rotation.y, bb3d.pose.rotation.z, bb3d.pose.rotation.w,
+           bb3d.dim_x, bb3d.dim_y, bb3d.dim_z);
+  
+  // Save BB3D message
+  bb3d_msg = bb3d;
 
-  Eigen::Matrix4f T = Eigen::Matrix4f::Identity();
-  Eigen::Quaternionf q(bb3d.pose.rotation.w, bb3d.pose.rotation.x, bb3d.pose.rotation.y, bb3d.pose.rotation.z);
-  T.block<3,3>(0,0) = q.toRotationMatrix();
-  T.block<3,1>(0,3) << bb3d.pose.translation.x, bb3d.pose.translation.y, bb3d.pose.translation.z;
-
-  Eigen::Vector4f p1 ( dim_x / 2,  dim_y / 2,  dim_z / 2, 1);
-  Eigen::Vector4f p2 ( dim_x / 2,  dim_y / 2, -dim_z / 2, 1);
-  Eigen::Vector4f p3 ( dim_x / 2, -dim_y / 2,  dim_z / 2, 1);
-  Eigen::Vector4f p4 ( dim_x / 2, -dim_y / 2, -dim_z / 2, 1);
-  Eigen::Vector4f p5 (-dim_x / 2,  dim_y / 2,  dim_z / 2, 1);
-  Eigen::Vector4f p6 (-dim_x / 2,  dim_y / 2, -dim_z / 2, 1);
-  Eigen::Vector4f p7 (-dim_x / 2, -dim_y / 2,  dim_z / 2, 1);
-  Eigen::Vector4f p8 (-dim_x / 2, -dim_y / 2, -dim_z / 2, 1);
-
-  // Transform 3D points to camera coordinates
-  std::vector<Eigen::Vector4f> points = {p1, p2, p3, p4, p5, p6, p7, p8};
-  std::vector<cv::Point3f> object_points;
-  for (const auto& point : points) {
-    Eigen::Vector4f transformed_point = T * point;
-    object_points.emplace_back(transformed_point(0), transformed_point(1), transformed_point(2));
-  }
-
-  // Camera matrix and distortion coefficients
-  cv::Mat cam_matrix = (cv::Mat_<double>(3, 3) << roscam_info->K[0], roscam_info->K[1], roscam_info->K[2], 
-                                                  roscam_info->K[3], roscam_info->K[4], roscam_info->K[5], 
-                                                  roscam_info->K[6], roscam_info->K[7], roscam_info->K[8]);
-  cv::Mat distortion;
-  if (roscam_info->distortion_model == "plumb_bob") {
-    distortion = (cv::Mat_<double>(1, 5) << roscam_info->D[0], roscam_info->D[1], roscam_info->D[2], roscam_info->D[3], roscam_info->D[4]);
-  } else if (roscam_info->distortion_model == "rational_polynomial") {
-    distortion = (cv::Mat_<double>(1, 8) << roscam_info->D[0], roscam_info->D[1], roscam_info->D[2], roscam_info->D[3], roscam_info->D[4], roscam_info->D[5], roscam_info->D[6], roscam_info->D[7]);
-  } else {
-    ROS_WARN("Unknown distortion model: %s", roscam_info->distortion_model.c_str());
-    distortion = cv::Mat::zeros(1, 5, CV_64F); // Default to zero distortion if unknown model
-  }
-
-  // Project 3D points to 2D image plane
-  std::vector<cv::Point2f> image_points;
-  cv::projectPoints(object_points, cv::Vec3d::zeros(), cv::Vec3d::zeros(), cam_matrix, distortion, image_points);
-
-  // Initialize bounding box coordinates
-  float u_p_min = std::numeric_limits<float>::max();
-  float v_p_min = std::numeric_limits<float>::max();
-  float u_p_max = std::numeric_limits<float>::lowest();
-  float v_p_max = std::numeric_limits<float>::lowest();
-
-  // Calculate bounding box coordinates
-  for (const auto& point : image_points) {
-    u_p_min = std::min(u_p_min, point.x);
-    v_p_min = std::min(v_p_min, point.y);
-    u_p_max = std::max(u_p_max, point.x);
-    v_p_max = std::max(v_p_max, point.y);
-  }
-
-  // Output bounding box coordinates
-  ROS_INFO("Bounding box coordinates: (%f, %f) to (%f, %f)", v_p_min, u_p_min, v_p_max, u_p_max);
-
-  // Set flag indicating bounding box received
   got_bb3d = true;
 
 }
@@ -789,14 +795,14 @@ void MegaPoseClient::spin()
 
       if (getDetectionMethodFromString(detector_method) == BB3D)
       {
-        detection = detectObjectForInitMegaposeBB3D(object_name);
+        detection = detectObjectForInitMegaposeBB3D(bb3d_msg);
       }
 
       else if (getDetectionMethodFromString(detector_method) == CLICK)
       {
         detection = detectObjectForInitMegaposeClick(reset_bb, object_name);
       }
-              
+      
       if (detection && init_request_done) {
 
         visp_megapose::Init init_pose;
