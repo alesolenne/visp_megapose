@@ -134,6 +134,9 @@ class MegaPoseClient
   void displayScore(float);
   void overlayRender(const vpImage<vpRGBa> &overlay);
   void displayEvent(const optional<vpRect> &detection);
+  void savePose();
+  void displayInitBoundingBox(); 
+  void displayTrackingBoundingBox(); 
   vpColor interpolate(const vpColor &low, const vpColor &high, const float f);
   optional<vpRect> detectObjectForInitMegaposeClick(const string &object_name);
   optional<vpRect> detectObjectForInitMegaposeLoad(const string &object_name);
@@ -148,39 +151,25 @@ class MegaPoseClient
 
 public:
 MegaPoseClient(ros::NodeHandle *nh) 
-{ 
- //Parameters:
-
- //     image_topic(string) : Name of the image topic
- //     camera_info_topic(string) : Name of the camera info topic
- //     camera_tf(string) : Name of the camera frame
- //     object_name(string) : Name of the object model
- //     depth_enable(bool) : Whether to use depth image
- //     depth_topic(string) : Name of the depth image topic
- //     reinitThreshold(double) : Reinit threshold for init and track service
- //     refilterThreshold(double) : Filter threshold for filter poses
- //     buffer_size(int) : Buffer size for filter poses
- //     detector_method(string) : Detector method to generate initial bounding box
- //     bb3d_topic(string) : Name of the topic where are published the 3d bounding boxes
-
-  this->nh_ = *nh;
+  : nh_(*nh),
+    initialized(false),
+    init_request_done(true),
+    got_image(false),
+    got_depth(false),
+    got_bb3d(false),
+    overlayModel(false),
+    show_init_bb(false),
+    show_track_bb(false),
+    flag_track(false),
+    flag_render(false)
+{
+  // Retrieve the username for constructing the megapose directory path
   char username[32];
   cuserid(username);
-  std::string user(username);
-  megapose_directory = "/home/" + user + "/catkin_ws/src/visp_megapose"; //change this path to your catkin workspace path
+  user = std::string(username);
+  megapose_directory = "/home/" + user + "/catkin_ws/src/visp_megapose"; // Adjust this path as needed
 
-  initialized = false;
-  init_request_done = true;
-  got_image = false;
-  got_depth = false;
-  got_bb3d = false;
-  overlayModel = false;
-  show_init_bb = false;
-  show_track_bb = false;
-
-  flag_track = false; //flag for tracking
-  flag_render = false; //flag for tracking
-
+  // Load parameters from the ROS parameter server
   ros::param::get("image_topic", image_topic);
   ros::param::get("camera_info_topic", camera_info_topic);
   ros::param::get("camera_tf", camera_tf);
@@ -193,26 +182,26 @@ MegaPoseClient(ros::NodeHandle *nh)
   ros::param::get("detector_method", detector_method);
   ros::param::get("bb3d_topic", bb3d_topic);
 
-  image_sub.subscribe(*nh, image_topic, 1);
-  camera_info_sub.subscribe(*nh, camera_info_topic, 1);
+  // Subscribe to image and camera info topics
+  image_sub.subscribe(nh_, image_topic, 1);
+  camera_info_sub.subscribe(nh_, camera_info_topic, 1);
 
+  // Subscribe to BB3D topic if the detection method is BB3D
   if (getDetectionMethodFromString(detector_method) == BB3D)
   {
-    bb3d_sub = nh->subscribe(bb3d_topic, 1, &MegaPoseClient::BB3DCallback, this);
+    bb3d_sub = nh_.subscribe(bb3d_topic, 1, &MegaPoseClient::BB3DCallback, this);
   }
-  
 
+  // Set up synchronization for RGB or RGBD topics
   if (!depth_enable)
   {
-    boost::shared_ptr<message_filters::Synchronizer<SyncPolicyRGB> > sync1(new message_filters::Synchronizer<SyncPolicyRGB>(SyncPolicyRGB(1), image_sub, camera_info_sub));
-    sync_rgb = sync1;
+    sync_rgb = boost::make_shared<message_filters::Synchronizer<SyncPolicyRGB>>(SyncPolicyRGB(1), image_sub, camera_info_sub);
     sync_rgb->registerCallback(boost::bind(&MegaPoseClient::frameCallback_rgb, this, _1, _2));
   }
   else
   {
-    depth_sub.subscribe(*nh, depth_topic, 1);
-    boost::shared_ptr<message_filters::Synchronizer<SyncPolicyRGBD> > sync2(new message_filters::Synchronizer<SyncPolicyRGBD>(SyncPolicyRGBD(1), image_sub, camera_info_sub, depth_sub));
-    sync_rgbd = sync2;
+    depth_sub.subscribe(nh_, depth_topic, 1);
+    sync_rgbd = boost::make_shared<message_filters::Synchronizer<SyncPolicyRGBD>>(SyncPolicyRGBD(1), image_sub, camera_info_sub, depth_sub);
     sync_rgbd->registerCallback(boost::bind(&MegaPoseClient::frameCallback_rgbd, this, _1, _2, _3));
   }
 };
@@ -404,87 +393,31 @@ void MegaPoseClient::displayEvent(const optional<vpRect> &detection)
   const bool keyPressed = vpDisplay::getKeyboardEvent(vpI, keyboardEvent, false);
 
   if (keyPressed) {
-
     if (keyboardEvent == "q") {
-        ros::shutdown();
+      ros::shutdown();
+    } else if (keyboardEvent == "t") {
+      initialized = false;
+      init_request_done = true;
+      detector_method = "CLICK";
+      ROS_INFO("Reinitialize...");
+    } else if (keyboardEvent == "s") {
+      savePose();
+    } else if (keyboardEvent == "r") {
+      overlayModel = !overlayModel;
+      flag_render = false;
+    } else if (keyboardEvent == "n") {
+      show_init_bb = !show_init_bb;
+    } else if (keyboardEvent == "b") {
+      show_track_bb = !show_track_bb;
     }
-
-    if (keyboardEvent == "t") {
-        initialized = false;
-        init_request_done = true;
-
-        ROS_INFO("Reinitialize...");
-    }
-
-    if (keyboardEvent == "s") {
-        
-        ofstream output_file(megapose_directory + "/output/pose/" + object_name + "_pose.json", ios::out);
-        json outJson;
-
-        double translation [1][3] = {transform.translation.x, transform.translation.y, transform.translation.z};
-        double rotation [1][4] = {transform.rotation.x, transform.rotation.y, transform.rotation.z, transform.rotation.w};
-
-        outJson["object_name"] = object_name;
-        outJson["position"] = translation[0];
-        outJson["rotation"] = rotation[0];
-
-        output_file << outJson.dump(4);
-        output_file.close();
-
-        ROS_INFO("Pose saved on %s.json file!", object_name.c_str());
-    }
-
-    if (keyboardEvent == "r") {
-        overlayModel = !overlayModel;
-        flag_render = false;
-    }
-
   }
 
   if (show_init_bb) {
-
-    ifstream bb_file(megapose_directory + "/output/bb/" + object_name + "_bb.json", ios::in);
-    json bb_in;
-    bb_file >> bb_in;
-
-    vpImagePoint init_topLeft(bb_in["point1"][0], bb_in["point1"][1]);
-    vpImagePoint init_bottomRight(bb_in["point2"][0], bb_in["point2"][1]);
-    bb_file.close();
-
-    vpDisplay::displayRectangle(vpI, init_topLeft, init_bottomRight, vpColor::blue, false, 2);
-    
-    if (keyboardEvent == "n") {
-        show_init_bb=!show_init_bb;
-    }
-  }
-
-  else{
-
-    if (keyboardEvent == "n") {
-        show_init_bb=!show_init_bb;
-    }
-
+    displayInitBoundingBox();
   }
 
   if (show_track_bb) {
-    
-    boundingbox_filter(bb);
-    vpImagePoint topLeft(bb[1], bb[0]);
-    vpImagePoint bottomRight(bb[3], bb[2]);
-    vpDisplay::displayRectangle(vpI, topLeft, bottomRight, vpColor::red, false, 2);
-    
-    if (keyboardEvent == "b") {
-        show_track_bb=!show_track_bb;
-    }
-
-  }
-
-  else{
-
-    if (keyboardEvent == "b") {
-        show_track_bb=!show_track_bb;
-    }
-
+    displayTrackingBoundingBox();
   }
 
   static vpHomogeneousMatrix M;
@@ -493,7 +426,50 @@ void MegaPoseClient::displayEvent(const optional<vpRect> &detection)
   broadcastTransform_filter(transform, object_name, camera_tf);
   M = visp_bridge::toVispHomogeneousMatrix(filter_transform);
   vpDisplay::displayFrame(vpI, M, vpcam_info, 0.05, vpColor::none, 3);
+}
 
+void MegaPoseClient::savePose() 
+{
+  ofstream output_file(megapose_directory + "/output/pose/" + object_name + "_pose.json", ios::out);
+  json outJson;
+
+  double translation[3] = {transform.translation.x, transform.translation.y, transform.translation.z};
+  double rotation[4] = {transform.rotation.x, transform.rotation.y, transform.rotation.z, transform.rotation.w};
+
+  outJson["object_name"] = object_name;
+  outJson["position"] = {translation[0], translation[1], translation[2]};
+  outJson["rotation"] = {rotation[0], rotation[1], rotation[2], rotation[3]};
+
+  output_file << outJson.dump(4);
+  output_file.close();
+
+  ROS_INFO("Pose saved to %s_pose.json!", object_name.c_str());
+}
+
+void MegaPoseClient::displayInitBoundingBox() 
+{
+  ifstream bb_file(megapose_directory + "/output/bb/" + object_name + "_bb.json", ios::in);
+  if (!bb_file.is_open()) {
+    ROS_WARN("Failed to open bounding box file for object: %s", object_name.c_str());
+    return;
+  }
+
+  json bb_in;
+  bb_file >> bb_in;
+  bb_file.close();
+
+  vpImagePoint init_topLeft(bb_in["point1"][0], bb_in["point1"][1]);
+  vpImagePoint init_bottomRight(bb_in["point2"][0], bb_in["point2"][1]);
+
+  vpDisplay::displayRectangle(vpI, init_topLeft, init_bottomRight, vpColor::blue, false, 2);
+}
+
+void MegaPoseClient::displayTrackingBoundingBox() 
+{
+  boundingbox_filter(bb);
+  vpImagePoint topLeft(bb[1], bb[0]);
+  vpImagePoint bottomRight(bb[3], bb[2]);
+  vpDisplay::displayRectangle(vpI, topLeft, bottomRight, vpColor::red, false, 2);
 }
 
 vpColor MegaPoseClient::interpolate(const vpColor &low, const vpColor &high, const float f)
@@ -505,66 +481,68 @@ vpColor MegaPoseClient::interpolate(const vpColor &low, const vpColor &high, con
 }
 
 optional<vpRect> MegaPoseClient::detectObjectForInitMegaposeClick(const string &object_name)
-{ 
-    vpImagePoint topLeft, bottomRight;
+{
+  vpImagePoint topLeft, bottomRight;
+  const vpImagePoint textPosition(10.0, 20.0);
 
-    const bool startLabelling = vpDisplay::getClick(vpI, false);
+  // Wait for the user to start labeling
+  if (vpDisplay::getClick(vpI, false)) {
+    // Prompt user to click the upper left corner
+    vpDisplay::displayText(vpI, textPosition, "Click the upper left corner of the bounding box", vpColor::red);
+    vpDisplay::flush(vpI);
+    vpDisplay::getClick(vpI, topLeft, true);
 
-    const vpImagePoint textPosition(10.0, 20.0);
+    // Display the selected point
+    vpDisplay::display(vpI);
+    vpDisplay::displayCross(vpI, topLeft, 5, vpColor::red, 2);
 
-    if (startLabelling) {
-      vpDisplay::displayText(vpI, textPosition, "Click the upper left corner of the bounding box", vpColor::red);
-      vpDisplay::flush(vpI);
-      vpDisplay::getClick(vpI, topLeft, true);
-      vpDisplay::display(vpI);
-      vpDisplay::displayCross(vpI, topLeft, 5, vpColor::red, 2);
-      vpDisplay::displayText(vpI, textPosition, "Click the bottom right corner of the bounding box", vpColor::red);
-      vpDisplay::flush(vpI);
-      vpDisplay::getClick(vpI, bottomRight, true);
-      float a = topLeft.get_i();
-      float b = topLeft.get_j();
-      float c = bottomRight.get_i();
-      float d = bottomRight.get_j();
+    // Prompt user to click the bottom right corner
+    vpDisplay::displayText(vpI, textPosition, "Click the bottom right corner of the bounding box", vpColor::red);
+    vpDisplay::flush(vpI);
+    vpDisplay::getClick(vpI, bottomRight, true);
 
-      ofstream bb_file(megapose_directory + "/output/bb/" + object_name + "_bb.json", ios::out);
+    // Save bounding box coordinates to a JSON file
+    ofstream bb_file(megapose_directory + "/output/bb/" + object_name + "_bb.json", ios::out);
+    if (bb_file.is_open()) {
       json bb_out;
-
-      float point1 [1][2] = {a, b};
-      float point2 [1][2] = {c, d};
-
       bb_out["object_name"] = object_name;
-      bb_out["point1"] = point1[0];
-      bb_out["point2"] = point2[0];
-
+      bb_out["point1"] = {topLeft.get_i(), topLeft.get_j()};
+      bb_out["point2"] = {bottomRight.get_i(), bottomRight.get_j()};
       bb_file << bb_out.dump(4);
       bb_file.close();
-
-      vpRect bb(topLeft, bottomRight);
-      return bb;
-
     } else {
-      vpDisplay::display(vpI);
-      vpDisplay::displayText(vpI, textPosition, "Click when the object is visible and static to start reinitializing megapose.", vpColor::red);
-      vpDisplay::flush(vpI);
-      return nullopt;
+      ROS_WARN("Failed to open bounding box file for writing: %s", object_name.c_str());
     }
 
+    // Return the bounding box
+    return vpRect(topLeft, bottomRight);
+  } else {
+    // Display a message prompting the user to click when ready
+    vpDisplay::display(vpI);
+    vpDisplay::displayText(vpI, textPosition, "Click when the object is visible and static to start reinitializing megapose.", vpColor::red);
+    vpDisplay::flush(vpI);
+    return nullopt;
+  }
 }
 
 optional<vpRect> MegaPoseClient::detectObjectForInitMegaposeLoad(const string &object_name)
 {
 
     ifstream bb_file(megapose_directory + "/output/bb/" + object_name + "_bb.json", ios::in);
+    if (!bb_file.is_open()) {
+      ROS_WARN("Failed to open bounding box file for object: %s", object_name.c_str());
+      return nullopt;
+    }
+    
     json bb_in;
     bb_file >> bb_in;
 
-    vpImagePoint topLeft, bottomRight;
-
-    topLeft = vpImagePoint(bb_in["point1"][0], bb_in["point1"][1]);
-    bottomRight = vpImagePoint(bb_in["point2"][0], bb_in["point2"][1]);
+    vpImagePoint topLeft(bb_in["point1"][0], bb_in["point1"][1]);
+    vpImagePoint bottomRight(bb_in["point2"][0], bb_in["point2"][1]);
     vpRect bb(topLeft, bottomRight);
+    
     bb_file.close();
-    return bb;
+    return vpRect(topLeft, bottomRight);
 
 }
 
@@ -635,22 +613,21 @@ optional<vpRect> MegaPoseClient::detectObjectForInitMegaposeBB3D(const visp_mega
 
     topLeft = vpImagePoint(v_p_min, u_p_min);
     bottomRight = vpImagePoint(v_p_max, u_p_max);
-    vpRect bb(topLeft, bottomRight);
-
+    
+    // Save bounding box coordinates to a JSON file
     ofstream bb_file(megapose_directory + "/output/bb/" + object_name + "_bb.json", ios::out);
-    json bb_out;
+    if (bb_file.is_open()) {
+      json bb_out;
+      bb_out["object_name"] = object_name;
+      bb_out["point1"] = {v_p_min, u_p_min};
+      bb_out["point2"] = {v_p_max, u_p_max};
+      bb_file << bb_out.dump(4);
+      bb_file.close();
+    } else {
+      ROS_WARN("Failed to open bounding box file for writing: %s", object_name.c_str());
+    }
 
-    float point1 [1][2] = {v_p_min, u_p_min};
-    float point2 [1][2] = {v_p_max, u_p_max};
-
-    bb_out["object_name"] = object_name;
-    bb_out["point1"] = point1[0];
-    bb_out["point2"] = point2[0];
-
-    bb_file << bb_out.dump(4);
-    bb_file.close();
-
-    return bb;
+    return vpRect(topLeft, bottomRight);
 
 }
 
@@ -671,18 +648,10 @@ void MegaPoseClient::init_service_response_callback(const visp_megapose::Init::R
 
   if (confidence < refilterThreshold)
   {
-    buffer_x.clear();
-    buffer_y.clear();
-    buffer_z.clear();
-    buffer_qw.clear();
-    buffer_qx.clear();
-    buffer_qy.clear();
-    buffer_qz.clear();
-
-    buffer_bb1.clear();
-    buffer_bb2.clear();
-    buffer_bb3.clear();
-    buffer_bb4.clear();
+    for (auto &buffer : {&buffer_x, &buffer_y, &buffer_z, &buffer_qw, &buffer_qx, &buffer_qy, &buffer_qz, 
+               &buffer_bb1, &buffer_bb2, &buffer_bb3, &buffer_bb4}) {
+      buffer->clear();
+    }
   }
 
   if (confidence < reinitThreshold) {
@@ -796,13 +765,10 @@ void MegaPoseClient::spin()
 
       optional<vpRect> detection = nullopt;
 
-      buffer_x.clear();
-      buffer_y.clear();
-      buffer_z.clear();
-      buffer_qw.clear();
-      buffer_qx.clear();
-      buffer_qy.clear();
-      buffer_qz.clear();
+      for (auto &buffer : {&buffer_x, &buffer_y, &buffer_z, &buffer_qw, &buffer_qx, &buffer_qy, &buffer_qz, 
+               &buffer_bb1, &buffer_bb2, &buffer_bb3, &buffer_bb4}) {
+        buffer->clear();
+      }
 
       DetectionMethod method = getDetectionMethodFromString(detector_method);
 
