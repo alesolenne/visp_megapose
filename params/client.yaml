@@ -8,8 +8,6 @@ camera_tf: "camera_link",              # Set the camera frame
 
 object_name: "box1",                       # Set the object to be detected
 
-reset_bb: False,                            # Set the 2d bounding box manually
-
 depth_enable: False,                        # Enable depth image
 
 depth_topic: "/camera/aligned_depth_to_color/image_raw",  # Set the depth image topic
@@ -20,7 +18,7 @@ refilterThreshold: 0.5,                       #Filter threshold for filter poses
 
 buffer_size: 20,                            #Buffer size for filter poses
 
-detector_method: "BB3D",                     #Detector method to generate initial bounding box
+detector_method: "LOAD",                     #Detector method to generate initial bounding box
 
 bb3d_topic: "/BB3D"
 

@@ -1,16 +1,15 @@
-#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <nlohmann/json.hpp>
 #include <stdio.h>
 #include <Eigen/Dense>
-#include <opencv2/opencv.hpp>
 
-// visp includes
+// visp/OpenCV includes
 #include <visp3/core/vpTime.h>
 #include <visp3/gui/vpDisplayX.h>
+#include <opencv2/opencv.hpp>
 
-// OpenCV/visp bridge includes
+// /visp bridge includes
 #include <visp_bridge/3dpose.h>
 #include <visp_bridge/camera.h>
 #include <visp_bridge/image.h>
@@ -19,12 +18,12 @@
 #include <ros/ros.h>
 #include <tf2_ros/transform_broadcaster.h>
 #include <sensor_msgs/Image.h>
-#include <visp_megapose/BB3D.h>
 
-// ROS visp_megapose Server includes
+// ROS visp_megapose includes
 #include <visp_megapose/Init.h>
 #include <visp_megapose/Track.h>
 #include <visp_megapose/Render.h>
+#include <visp_megapose/BB3D.h>
 
 // ROS message filter includes
 #include <message_filters/subscriber.h>
@@ -41,12 +40,14 @@ enum DetectionMethod
 {
   UNKNOWN,
   CLICK,
-  BB3D
+  BB3D,
+  LOAD
 };
 
 std::map<std::string, DetectionMethod> stringToDetectionMethod = {
     {"UNKNOWN", UNKNOWN},
     {"CLICK", CLICK},
+    {"LOAD", LOAD},
     {"BB3D", BB3D}};
 
 class MegaPoseClient 
@@ -66,7 +67,6 @@ class MegaPoseClient
   string bb3d_topic;
   string detector_method;
   bool depth_enable;
-  bool reset_bb;
   double reinitThreshold;
   double refilterThreshold;
   int buffer_size;
@@ -95,6 +95,7 @@ class MegaPoseClient
   deque<double> buffer_x, buffer_y, buffer_z,buffer_qw, buffer_qx, buffer_qy, buffer_qz;
 
   // ROS variables
+
   sensor_msgs::CameraInfoConstPtr roscam_info;
   visp_megapose::BB3D bb3d_msg;
 
@@ -104,18 +105,18 @@ class MegaPoseClient
   geometry_msgs::Transform transform; 
   geometry_msgs::Transform filter_transform;
 
+  // Message filters for synchronization
   message_filters::Subscriber<sensor_msgs::Image> image_sub;
   message_filters::Subscriber<sensor_msgs::CameraInfo> camera_info_sub;
-
   message_filters::Subscriber<sensor_msgs::Image> depth_sub;
-  message_filters::Subscriber<sensor_msgs::CameraInfo> depth_info_sub;
- 
+
   typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::Image, sensor_msgs::CameraInfo> SyncPolicyRGB;
   typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::Image, sensor_msgs::CameraInfo, sensor_msgs::Image> SyncPolicyRGBD;
 
-  boost::shared_ptr<message_filters::Synchronizer<SyncPolicyRGB> > sync_rgb;
-  boost::shared_ptr<message_filters::Synchronizer<SyncPolicyRGBD> > sync_rgbd;
+  boost::shared_ptr<message_filters::Synchronizer<SyncPolicyRGB>> sync_rgb;
+  boost::shared_ptr<message_filters::Synchronizer<SyncPolicyRGBD>> sync_rgbd;
 
+  // ROS subscriber for 3D bounding box messages
   ros::Subscriber bb3d_sub;
 
   // Functions
@@ -132,7 +133,8 @@ class MegaPoseClient
   void overlayRender(const vpImage<vpRGBa> &overlay);
   void displayEvent(const optional<vpRect> &detection);
   vpColor interpolate(const vpColor &low, const vpColor &high, const float f);
-  optional<vpRect> detectObjectForInitMegaposeClick(bool &reset_bb, const string &object_name);
+  optional<vpRect> detectObjectForInitMegaposeClick(const string &object_name);
+  optional<vpRect> detectObjectForInitMegaposeLoad(const string &object_name);
   optional<vpRect> detectObjectForInitMegaposeBB3D(const visp_megapose::BB3D &bb_msg);
   DetectionMethod getDetectionMethodFromString(const std::string &str);
 
@@ -151,7 +153,6 @@ MegaPoseClient(ros::NodeHandle *nh)
  //     camera_info_topic(string) : Name of the camera info topic
  //     camera_tf(string) : Name of the camera frame
  //     object_name(string) : Name of the object model
- //     reset_bb(bool) : Whether to reset the bounding box saved
  //     depth_enable(bool) : Whether to use depth image
  //     depth_topic(string) : Name of the depth image topic
  //     reinitThreshold(double) : Reinit threshold for init and track service
@@ -182,7 +183,6 @@ MegaPoseClient(ros::NodeHandle *nh)
   ros::param::get("camera_info_topic", camera_info_topic);
   ros::param::get("camera_tf", camera_tf);
   ros::param::get("object_name", object_name);
-  ros::param::get("reset_bb",  reset_bb);
   ros::param::get("depth_enable", depth_enable);
   ros::param::get("depth_topic", depth_topic);
   ros::param::get("reinitThreshold", reinitThreshold);
@@ -194,12 +194,7 @@ MegaPoseClient(ros::NodeHandle *nh)
   image_sub.subscribe(*nh, image_topic, 1);
   camera_info_sub.subscribe(*nh, camera_info_topic, 1);
 
-  if (getDetectionMethodFromString(detector_method) == UNKNOWN)
-  {
-    ROS_WARN("Unknown detection method. Exiting.");
-    ros::shutdown();
-  }
-  else if (getDetectionMethodFromString(detector_method) == BB3D)
+  if (getDetectionMethodFromString(detector_method) == BB3D)
   {
     bb3d_sub = nh->subscribe(bb3d_topic, 1, &MegaPoseClient::BB3DCallback, this);
   }
@@ -409,7 +404,6 @@ void MegaPoseClient::displayEvent(const optional<vpRect> &detection)
     if (keyboardEvent == "t") {
         initialized = false;
         init_request_done = true;
-        reset_bb = true;
 
         ROS_INFO("Reinitialize...");
     }
@@ -501,62 +495,68 @@ vpColor MegaPoseClient::interpolate(const vpColor &low, const vpColor &high, con
   return vpColor((unsigned char)r, (unsigned char)g, (unsigned char)b);
 }
 
-optional<vpRect> MegaPoseClient::detectObjectForInitMegaposeClick(bool &reset_bb, const string &object_name)
+optional<vpRect> MegaPoseClient::detectObjectForInitMegaposeClick(const string &object_name)
 { 
-  vpImagePoint topLeft, bottomRight;
+    vpImagePoint topLeft, bottomRight;
 
-  if (reset_bb){
     const bool startLabelling = vpDisplay::getClick(vpI, false);
 
     const vpImagePoint textPosition(10.0, 20.0);
 
-     if (startLabelling) {
-       vpDisplay::displayText(vpI, textPosition, "Click the upper left corner of the bounding box", vpColor::red);
-       vpDisplay::flush(vpI);
-       vpDisplay::getClick(vpI, topLeft, true);
-       vpDisplay::display(vpI);
-       vpDisplay::displayCross(vpI, topLeft, 5, vpColor::red, 2);
-       vpDisplay::displayText(vpI, textPosition, "Click the bottom right corner of the bounding box", vpColor::red);
-       vpDisplay::flush(vpI);
-       vpDisplay::getClick(vpI, bottomRight, true);
-       float a = topLeft.get_i();
-       float b = topLeft.get_j();
-       float c = bottomRight.get_i();
-       float d = bottomRight.get_j();
+    if (startLabelling) {
+      vpDisplay::displayText(vpI, textPosition, "Click the upper left corner of the bounding box", vpColor::red);
+      vpDisplay::flush(vpI);
+      vpDisplay::getClick(vpI, topLeft, true);
+      vpDisplay::display(vpI);
+      vpDisplay::displayCross(vpI, topLeft, 5, vpColor::red, 2);
+      vpDisplay::displayText(vpI, textPosition, "Click the bottom right corner of the bounding box", vpColor::red);
+      vpDisplay::flush(vpI);
+      vpDisplay::getClick(vpI, bottomRight, true);
+      float a = topLeft.get_i();
+      float b = topLeft.get_j();
+      float c = bottomRight.get_i();
+      float d = bottomRight.get_j();
 
-       ofstream bb_file(megapose_directory + "/output/bb/" + object_name + "_bb.json", ios::out);
-       json bb_out;
+      ofstream bb_file(megapose_directory + "/output/bb/" + object_name + "_bb.json", ios::out);
+      json bb_out;
 
-       float point1 [1][2] = {a, b};
-       float point2 [1][2] = {c, d};
+      float point1 [1][2] = {a, b};
+      float point2 [1][2] = {c, d};
 
-       bb_out["object_name"] = object_name;
-       bb_out["point1"] = point1[0];
-       bb_out["point2"] = point2[0];
+      bb_out["object_name"] = object_name;
+      bb_out["point1"] = point1[0];
+      bb_out["point2"] = point2[0];
 
-       bb_file << bb_out.dump(4);
-       bb_file.close();
+      bb_file << bb_out.dump(4);
+      bb_file.close();
 
-       vpRect bb(topLeft, bottomRight);
-       return bb;
+      vpRect bb(topLeft, bottomRight);
+      return bb;
 
-     } else {
-        vpDisplay::display(vpI);
-        vpDisplay::displayText(vpI, textPosition, "Click when the object is visible and static to start reinitializing megapose.", vpColor::red);
-        vpDisplay::flush(vpI);
-        return nullopt;
-     }
-  } else {
-     ifstream bb_file(megapose_directory + "/output/bb/" + object_name + "_bb.json", ios::in);
-     json bb_in;
-     bb_file >> bb_in;
+    } else {
+      vpDisplay::display(vpI);
+      vpDisplay::displayText(vpI, textPosition, "Click when the object is visible and static to start reinitializing megapose.", vpColor::red);
+      vpDisplay::flush(vpI);
+      return nullopt;
+    }
 
-     topLeft = vpImagePoint(bb_in["point1"][0], bb_in["point1"][1]);
-     bottomRight = vpImagePoint(bb_in["point2"][0], bb_in["point2"][1]);
-     vpRect bb(topLeft, bottomRight);
-     bb_file.close();
-     return bb;
-  }
+}
+
+optional<vpRect> MegaPoseClient::detectObjectForInitMegaposeLoad(const string &object_name)
+{
+
+    ifstream bb_file(megapose_directory + "/output/bb/" + object_name + "_bb.json", ios::in);
+    json bb_in;
+    bb_file >> bb_in;
+
+    vpImagePoint topLeft, bottomRight;
+
+    topLeft = vpImagePoint(bb_in["point1"][0], bb_in["point1"][1]);
+    bottomRight = vpImagePoint(bb_in["point2"][0], bb_in["point2"][1]);
+    vpRect bb(topLeft, bottomRight);
+    bb_file.close();
+    return bb;
+
 }
 
 optional<vpRect> MegaPoseClient::detectObjectForInitMegaposeBB3D(const visp_megapose::BB3D &bb_msg)
@@ -673,7 +673,6 @@ void MegaPoseClient::init_service_response_callback(const visp_megapose::Init::R
 
   if (confidence < reinitThreshold) {
       ROS_INFO("Initial pose not reliable, reinitializing...");
-      reset_bb = true;
   }
   else {
       initialized = true;
@@ -693,7 +692,6 @@ void MegaPoseClient::track_service_response_callback(const visp_megapose::Track:
   if (confidence < reinitThreshold) {
       initialized = false;
       init_request_done = true;
-      reset_bb = true;
       flag_track = false;
       flag_render = false;
       
@@ -757,7 +755,6 @@ void MegaPoseClient::spin()
     waitForBB3D();
     bb3d_sub.shutdown();
   }
-  
 
   vpDisplayX *d = NULL;
   d = new vpDisplayX();
@@ -793,16 +790,27 @@ void MegaPoseClient::spin()
       buffer_qy.clear();
       buffer_qz.clear();
 
-      if (getDetectionMethodFromString(detector_method) == BB3D)
+      DetectionMethod method = getDetectionMethodFromString(detector_method);
+
+      switch (method)
       {
-        detection = detectObjectForInitMegaposeBB3D(bb3d_msg);
+        case BB3D:
+          detection = detectObjectForInitMegaposeBB3D(bb3d_msg);
+          break;
+
+        case CLICK:
+          detection = detectObjectForInitMegaposeClick(object_name);
+          break;
+
+        case LOAD:
+          detection = detectObjectForInitMegaposeLoad(object_name);
+          break;
+
+        default:
+          ROS_WARN("Unsupported detection method: %s", detector_method.c_str());
+          ros::shutdown();
       }
 
-      else if (getDetectionMethodFromString(detector_method) == CLICK)
-      {
-        detection = detectObjectForInitMegaposeClick(reset_bb, object_name);
-      }
-      
       if (detection && init_request_done) {
 
         visp_megapose::Init init_pose;
