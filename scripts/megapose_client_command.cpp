@@ -1,12 +1,17 @@
+// Standard includes
 #include <fstream>
 #include <iostream>
 #include <nlohmann/json.hpp>
 
-// visp includes
+// Include Eigen library for matrix and vector operations
+#include <Eigen/Dense>
+
+// ViSP and OpenCV includes
 #include <visp3/core/vpTime.h>
 #include <visp3/gui/vpDisplayX.h>
+#include <opencv2/opencv.hpp>
 
-// OpenCV/visp bridge includes
+// ViSP bridge includes
 #include <visp_bridge/3dpose.h>
 #include <visp_bridge/camera.h>
 #include <visp_bridge/image.h>
@@ -22,6 +27,7 @@
 #include <visp_megapose/Render.h>
 #include <visp_megapose/ObjectName.h>
 #include <visp_megapose/PoseResult.h>
+#include <visp_megapose/BB3D.h>
 
 // ROS message filter includes
 #include <message_filters/subscriber.h>
@@ -29,10 +35,25 @@
 #include <message_filters/time_synchronizer.h>
 #include <message_filters/sync_policies/approximate_time.h>
 
+// Include deque for buffer management
 #include <deque>
 
 using namespace std;
 using namespace nlohmann;
+
+enum DetectionMethod
+{
+  UNKNOWN,
+  CLICK,
+  BB3D,
+  LOAD
+};
+
+std::map<std::string, DetectionMethod> stringToDetectionMethod = {
+  {"UNKNOWN", UNKNOWN},
+  {"CLICK", CLICK},
+  {"LOAD", LOAD},
+  {"BB3D", BB3D}};
 
 class MegaPoseClient 
 {
@@ -47,6 +68,8 @@ class MegaPoseClient
   string camera_info_topic;
   string object_name;
   string depth_topic;
+  string bb3d_topic;
+  string detector_method;
   bool depth_enable;
   double reinitThreshold;
 
@@ -56,6 +79,7 @@ class MegaPoseClient
   bool got_image;
   bool got_depth;
   bool got_name;
+  bool got_bb3d;
   double confidence;
   unsigned width, height, widthD, heightD;
   int n_object;
@@ -68,7 +92,9 @@ class MegaPoseClient
   optional<vpRect> detection;
 
   // ROS variables
+
   sensor_msgs::CameraInfoConstPtr roscam_info;
+  visp_megapose::BB3D bb3d_msg;
 
   boost::shared_ptr<const sensor_msgs::Image> rosI;
   boost::shared_ptr<const sensor_msgs::Image> rosD; 
@@ -78,11 +104,10 @@ class MegaPoseClient
   ros::Subscriber obj_sub;
   ros::Publisher pub_pose;
 
+  // Message filters for synchronization
   message_filters::Subscriber<sensor_msgs::Image> image_sub;
   message_filters::Subscriber<sensor_msgs::CameraInfo> camera_info_sub;
-
   message_filters::Subscriber<sensor_msgs::Image> depth_sub;
-  message_filters::Subscriber<sensor_msgs::CameraInfo> depth_info_sub;
  
   typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::Image, sensor_msgs::CameraInfo> SyncPolicyRGB;
   typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::Image, sensor_msgs::CameraInfo, sensor_msgs::Image> SyncPolicyRGBD;
@@ -90,67 +115,80 @@ class MegaPoseClient
   boost::shared_ptr<message_filters::Synchronizer<SyncPolicyRGB> > sync_rgb;
   boost::shared_ptr<message_filters::Synchronizer<SyncPolicyRGBD> > sync_rgbd;
 
+  // ROS subscriber for 3D bounding box messages
+  ros::Subscriber bb3d_sub;
+
   // Functions
 
   void waitForImage();
   void waitForDepth();
+  void waitForBB3D();
   void frameCallback_rgb(const sensor_msgs::ImageConstPtr &image, const sensor_msgs::CameraInfoConstPtr &camera_info);
   void frameCallback_rgbd(const sensor_msgs::ImageConstPtr &image, const sensor_msgs::CameraInfoConstPtr &cam_info, const sensor_msgs::ImageConstPtr &depth);
-  
-  void init_service_response_callback(const visp_megapose::Init::Response& future);
-  void track_service_response_callback(const visp_megapose::Track::Response& future);
-
   optional<vpRect> detectObjectForInitMegaposeClick(const string &object_name);
+  optional<vpRect> detectObjectForInitMegaposeLoad(const string &object_name);
+  optional<vpRect> detectObjectForInitMegaposeBB3D(const visp_megapose::BB3D &bb_msg);
+  DetectionMethod getDetectionMethodFromString(const std::string &str);
+
+  void init_service_response_callback(const visp_megapose::Init::Response &future);
+  void track_service_response_callback(const visp_megapose::Track::Response &future);
 
   void waitForName();
   void frameObject(const visp_megapose::ObjectName &command);
+  void BB3DCallback(const visp_megapose::BB3D &bb3d);
 
 public:
-MegaPoseClient(ros::NodeHandle *nh) 
+MegaPoseClient(ros::NodeHandle *nh)
+  : nh_(*nh),
+    initialized(false),
+    init_request_done(true),
+    got_image(false),
+    got_depth(false),
+    got_bb3d(false),
+    object_found(0);
 { 
- //Parameters:
-
- //     image_topic(string) : Name of the image topic
- //     camera_info_topic(string) : Name of the camera info topic
- //     object_name(string) : Name of the object model
- //     depth_enable(bool) : Whether to use depth image
- //     depth_topic(string) : Name of the depth image topic
- //     reinitThreshold(double) : Reinit threshold for init and track service
-
-  this->nh_ = *nh;
+  // Retrieve the username for constructing the megapose directory path
   char username[32];
   cuserid(username);
   std::string user(username);
-  megapose_directory = "/home/" + user + "/catkin_ws/src/visp_megapose"; //change this path to your catkin workspace path
+  megapose_directory = "/home/" + user + "/catkin_ws/src/visp_megapose"; // Adjust this path as needed
 
-  initialized = false;
-  init_request_done = true;
-  got_image = false;
-  got_name = false;
-  object_found = 0;
+  // Load parameters from the ROS parameter server
 
-  ros::param::get("image_topic", image_topic);
-  ros::param::get("camera_info_topic", camera_info_topic);
-  ros::param::get("depth_enable", depth_enable);
-  ros::param::get("depth_topic", depth_topic);
-  ros::param::get("reinitThreshold", reinitThreshold);
+  ros::param::get("image_topic", image_topic);                     // image_topic(string): Name of the image topic
+  ros::param::get("camera_info_topic", camera_info_topic);         // camera_info_topic(string): Name of the camera info topic
+  ros::param::get("depth_enable", depth_enable);                   // depth_enable(bool): Whether to use depth image
+  ros::param::get("depth_topic", depth_topic);                     // depth_topic(string): Name of the depth image topic
+  ros::param::get("reinitThreshold", reinitThreshold);             // reinitThreshold(double): Reinit threshold for init and track service
+  ros::param::get("detector_method", detector_method);             // Detection method to use
+  ros::param::get("bb3d_topic", bb3d_topic);                       // Name of the 3D bounding box topic
 
+  // Subscribe to image and camera info topics
   image_sub.subscribe(*nh, image_topic, 1);
   camera_info_sub.subscribe(*nh, camera_info_topic, 1);
+
+  // Subscribe to the "ObjectList" topic to receive object names and numbers
   obj_sub = nh->subscribe("ObjectList", 1, &MegaPoseClient::frameObject, this);
+
+  // Advertise the "PoseResult" topic to publish the pose results of detected objects
   pub_pose = nh->advertise<visp_megapose::PoseResult>("PoseResult", 1, true);
 
+  // Subscribe to BB3D topic if the detection method is BB3D
+  if (getDetectionMethodFromString(detector_method) == BB3D)
+  {
+    bb3d_sub = nh_.subscribe(bb3d_topic, 1, &MegaPoseClient::BB3DCallback, this);
+  }
+  
+  // Set up synchronization for RGB or RGBD topics
   if (!depth_enable)
   {
-    boost::shared_ptr<message_filters::Synchronizer<SyncPolicyRGB> > sync1(new message_filters::Synchronizer<SyncPolicyRGB>(SyncPolicyRGB(1), image_sub, camera_info_sub));
-    sync_rgb = sync1;
+    sync_rgb = boost::make_shared<message_filters::Synchronizer<SyncPolicyRGB>>(SyncPolicyRGB(1), image_sub, camera_info_sub);
     sync_rgb->registerCallback(boost::bind(&MegaPoseClient::frameCallback_rgb, this, _1, _2));
   }
   else
   {
-    depth_sub.subscribe(*nh, depth_topic, 1);
-    boost::shared_ptr<message_filters::Synchronizer<SyncPolicyRGBD> > sync2(new message_filters::Synchronizer<SyncPolicyRGBD>(SyncPolicyRGBD(1), image_sub, camera_info_sub, depth_sub));
-    sync_rgbd = sync2;
+    depth_sub.subscribe(nh_, depth_topic, 1);
+    sync_rgbd = boost::make_shared<message_filters::Synchronizer<SyncPolicyRGBD>>(SyncPolicyRGBD(1), image_sub, camera_info_sub, depth_sub);
     sync_rgbd->registerCallback(boost::bind(&MegaPoseClient::frameCallback_rgbd, this, _1, _2, _3));
   }
 
@@ -191,88 +229,244 @@ void MegaPoseClient::waitForDepth()
    }
  }
  
+void MegaPoseClient::waitForBB3D()
+{
+  ros::Rate loop_rate(10);
+  ROS_INFO("Waiting for BB3D message...");
+  while (ros::ok())
+  {
+    if (got_bb3d)
+    {
+      ROS_INFO("Got the bounding box!");
+      return;
+    }
+    ros::spinOnce();
+    loop_rate.sleep();
+  }
+}
+
 void MegaPoseClient::frameCallback_rgb(const sensor_msgs::ImageConstPtr &image, const sensor_msgs::CameraInfoConstPtr &cam_info)
 {
-rosI = image;
-roscam_info = cam_info;
-width = image->width;
-height = image->height;
 
-vpI = visp_bridge::toVispImageRGBa(*image);
-vpcam_info = visp_bridge::toVispCameraParameters(*cam_info);
+  // Store the received image and camera info
+  rosI = image;
+  roscam_info = cam_info;
 
-got_image = true;
+  // Extract image dimensions
+  width = image->width;
+  height = image->height;
+
+  // Convert ROS image and camera info to ViSP format
+  vpI = visp_bridge::toVispImageRGBa(*image);
+  vpcam_info = visp_bridge::toVispCameraParameters(*cam_info);
+
+  // Update flag to indicate image availability
+  got_image = true;
+
 }
 
 void MegaPoseClient::frameCallback_rgbd(const sensor_msgs::ImageConstPtr &image, const sensor_msgs::CameraInfoConstPtr &cam_info, const sensor_msgs::ImageConstPtr &depth)
 {
+
+  // Store the received image, depth, and camera info
   rosI = image;
   rosD = depth;
   roscam_info = cam_info;
+
+  // Extract dimensions for RGB and depth images
   width = image->width;
   height = image->height;
   widthD = depth->width;
   heightD = depth->height;
 
+  // Convert ROS image and camera info to ViSP format
   vpI = visp_bridge::toVispImageRGBa(*image);
   vpcam_info = visp_bridge::toVispCameraParameters(*cam_info);
 
+  // Update flags to indicate data availability
   got_image = true;
   got_depth = true;
+
 }
 
 optional<vpRect> MegaPoseClient::detectObjectForInitMegaposeClick(const string &object_name)
-{ 
+{
   vpImagePoint topLeft, bottomRight;
-
-  const bool startLabelling = vpDisplay::getClick(vpI, false);
-
   const vpImagePoint textPosition(10.0, 20.0);
 
-  if (startLabelling) {
+  // Wait for the user to start labeling
+  if (vpDisplay::getClick(vpI, false)) {
+    // Prompt user to click the upper left corner
     vpDisplay::displayText(vpI, textPosition, "Click the upper left corner of the bounding box", vpColor::red);
     vpDisplay::flush(vpI);
     vpDisplay::getClick(vpI, topLeft, true);
+
+    // Display the selected point
     vpDisplay::display(vpI);
     vpDisplay::displayCross(vpI, topLeft, 5, vpColor::red, 2);
+
+    // Prompt user to click the bottom right corner
     vpDisplay::displayText(vpI, textPosition, "Click the bottom right corner of the bounding box", vpColor::red);
     vpDisplay::flush(vpI);
     vpDisplay::getClick(vpI, bottomRight, true);
-    int a = topLeft.get_i();
-    int b = topLeft.get_j();
-    int c = bottomRight.get_i();
-    int d = bottomRight.get_j();
 
-    vpRect bb(topLeft, bottomRight);
-    return bb;
+    // Save bounding box coordinates to a JSON file
+    ofstream bb_file(megapose_directory + "/output/bb/" + object_name + "_bb.json", ios::out);
+    if (bb_file.is_open()) {
+      json bb_out;
+      bb_out["object_name"] = object_name;
+      bb_out["point1"] = {topLeft.get_i(), topLeft.get_j()};
+      bb_out["point2"] = {bottomRight.get_i(), bottomRight.get_j()};
+      bb_file << bb_out.dump(4);
+      bb_file.close();
+    } else {
+      ROS_WARN("Failed to open bounding box file for writing: %s", object_name.c_str());
+    }
 
+    // Return the bounding box
+    return vpRect(topLeft, bottomRight);
   } else {
+    // Display a message prompting the user to click when ready
     vpDisplay::display(vpI);
     vpDisplay::displayText(vpI, textPosition, "Click when the object is visible and static to start reinitializing megapose.", vpColor::red);
     vpDisplay::flush(vpI);
     return nullopt;
   }
-
 }
 
-void MegaPoseClient::init_service_response_callback(const visp_megapose::Init::Response& future)
+optional<vpRect> MegaPoseClient::detectObjectForInitMegaposeLoad(const string &object_name)
 {
-  transform = future.pose;
-  confidence = future.confidence;
-  ROS_INFO("Bounding box generated, checking the confidence");
 
+    ifstream bb_file(megapose_directory + "/output/bb/" + object_name + "_bb.json", ios::in);
+    if (!bb_file.is_open()) {
+      ROS_WARN("Failed to open bounding box file for object: %s", object_name.c_str());
+      return nullopt;
+    }
+    
+    json bb_in;
+    bb_file >> bb_in;
 
-  if (confidence < reinitThreshold) {
-      ROS_INFO("Initial pose not reliable, reinitializing...");
-  }
-  else {
-      initialized = true;
-      init_request_done = false;
-      ROS_INFO("Initialized successfully!");
-  }
+    vpImagePoint topLeft(bb_in["point1"][0], bb_in["point1"][1]);
+    vpImagePoint bottomRight(bb_in["point2"][0], bb_in["point2"][1]);
+    vpRect bb(topLeft, bottomRight);
+    
+    bb_file.close();
+    return vpRect(topLeft, bottomRight);
+
 }
 
-void MegaPoseClient::track_service_response_callback(const visp_megapose::Track::Response& future)
+optional<vpRect> MegaPoseClient::detectObjectForInitMegaposeBB3D(const visp_megapose::BB3D &bb_msg)
+{ 
+    double dim_x = bb3d_msg.dim_x;
+    double dim_y = bb3d_msg.dim_y;
+    double dim_z = bb3d_msg.dim_z;
+
+    Eigen::Matrix4f T = Eigen::Matrix4f::Identity();
+    Eigen::Quaternionf q(bb3d_msg.pose.rotation.w, bb3d_msg.pose.rotation.x, bb3d_msg.pose.rotation.y, bb3d_msg.pose.rotation.z);
+    T.block<3,3>(0,0) = q.toRotationMatrix();
+    T.block<3,1>(0,3) << bb3d_msg.pose.translation.x, bb3d_msg.pose.translation.y, bb3d_msg.pose.translation.z;
+
+    Eigen::Vector4f p1 ( dim_x / 2,  dim_y / 2,  dim_z / 2, 1);
+    Eigen::Vector4f p2 ( dim_x / 2,  dim_y / 2, -dim_z / 2, 1);
+    Eigen::Vector4f p3 ( dim_x / 2, -dim_y / 2,  dim_z / 2, 1);
+    Eigen::Vector4f p4 ( dim_x / 2, -dim_y / 2, -dim_z / 2, 1);
+    Eigen::Vector4f p5 (-dim_x / 2,  dim_y / 2,  dim_z / 2, 1);
+    Eigen::Vector4f p6 (-dim_x / 2,  dim_y / 2, -dim_z / 2, 1);
+    Eigen::Vector4f p7 (-dim_x / 2, -dim_y / 2,  dim_z / 2, 1);
+    Eigen::Vector4f p8 (-dim_x / 2, -dim_y / 2, -dim_z / 2, 1);
+
+    // Transform 3D points to camera coordinates
+    std::vector<Eigen::Vector4f> points = {p1, p2, p3, p4, p5, p6, p7, p8};
+    std::vector<cv::Point3f> object_points(points.size());
+    for (size_t i = 0; i < points.size(); ++i) {
+      Eigen::Vector4f transformed_point = T * points[i];
+      object_points[i] = cv::Point3f(transformed_point(0), transformed_point(1), transformed_point(2));
+    }
+
+    // Camera matrix and distortion coefficients
+    cv::Mat cam_matrix = (cv::Mat_<double>(3, 3) << roscam_info->K[0], roscam_info->K[1], roscam_info->K[2], 
+                roscam_info->K[3], roscam_info->K[4], roscam_info->K[5], 
+                roscam_info->K[6], roscam_info->K[7], roscam_info->K[8]);
+    cv::Mat distortion;
+    if (roscam_info->distortion_model == "plumb_bob") {
+      distortion = (cv::Mat_<double>(1, 5) << roscam_info->D[0], roscam_info->D[1], roscam_info->D[2], roscam_info->D[3], roscam_info->D[4]);
+    } else if (roscam_info->distortion_model == "rational_polynomial") {
+      distortion = (cv::Mat_<double>(1, 8) << roscam_info->D[0], roscam_info->D[1], roscam_info->D[2], roscam_info->D[3], roscam_info->D[4], roscam_info->D[5], roscam_info->D[6], roscam_info->D[7]);
+    } else {
+      ROS_WARN("Unknown distortion model: %s", roscam_info->distortion_model.c_str());
+      distortion = cv::Mat::zeros(1, 5, CV_64F); // Default to zero distortion if unknown model
+    }
+
+    // Project 3D points to 2D image plane
+    std::vector<cv::Point2f> image_points;
+    cv::projectPoints(object_points, cv::Vec3d::zeros(), cv::Vec3d::zeros(), cam_matrix, distortion, image_points);
+
+    // Initialize bounding box coordinates
+    float u_p_min = std::numeric_limits<float>::max();
+    float v_p_min = std::numeric_limits<float>::max();
+    float u_p_max = std::numeric_limits<float>::lowest();
+    float v_p_max = std::numeric_limits<float>::lowest();
+
+    // Calculate bounding box coordinates
+    for (const auto& point : image_points) {
+      u_p_min = std::min(u_p_min, point.x);
+      v_p_min = std::min(v_p_min, point.y);
+      u_p_max = std::max(u_p_max, point.x);
+      v_p_max = std::max(v_p_max, point.y);
+    }
+
+    // Output bounding box coordinates
+    ROS_INFO("2D Bounding box coordinates convertion: (%f, %f) to (%f, %f)", v_p_min, u_p_min, v_p_max, u_p_max);
+
+    vpImagePoint topLeft, bottomRight;
+
+    topLeft = vpImagePoint(v_p_min, u_p_min);
+    bottomRight = vpImagePoint(v_p_max, u_p_max);
+    
+    // Save bounding box coordinates to a JSON file
+    ofstream bb_file(megapose_directory + "/output/bb/" + object_name + "_bb.json", ios::out);
+    if (bb_file.is_open()) {
+      json bb_out;
+      bb_out["object_name"] = object_name;
+      bb_out["point1"] = {v_p_min, u_p_min};
+      bb_out["point2"] = {v_p_max, u_p_max};
+      bb_file << bb_out.dump(4);
+      bb_file.close();
+    } else {
+      ROS_WARN("Failed to open bounding box file for writing: %s", object_name.c_str());
+    }
+
+    return vpRect(topLeft, bottomRight);
+
+}
+
+DetectionMethod MegaPoseClient::getDetectionMethodFromString(const std::string &str)
+{
+  if (stringToDetectionMethod.find(str) != stringToDetectionMethod.end())
+  {
+    return stringToDetectionMethod[str];
+  }
+  return UNKNOWN;
+};
+
+void MegaPoseClient::init_service_response_callback(const visp_megapose::Init::Response &future)
+{
+transform = future.pose;
+confidence = future.confidence;
+ROS_INFO("Bounding box generated, checking the confidence");
+
+
+if (confidence < reinitThreshold) {
+    ROS_INFO("Initial pose not reliable, reinitializing...");
+}
+else {
+    initialized = true;
+    init_request_done = false;
+    ROS_INFO("Initialized successfully!");
+}
+}
+
+void MegaPoseClient::track_service_response_callback(const visp_megapose::Track::Response &future)
 {
 
   transform = future.pose;
@@ -316,13 +510,6 @@ void MegaPoseClient::track_service_response_callback(const visp_megapose::Track:
 
 }
 
-void MegaPoseClient::frameObject(const visp_megapose::ObjectName &command)
-{
-  got_name = true;
-  object_name = command.obj_name;
-  n_object = command.number;
-}
-
 void MegaPoseClient::waitForName()
 {
   ros::Rate loop_rate(10);
@@ -333,6 +520,36 @@ void MegaPoseClient::waitForName()
     ros::spinOnce();
     loop_rate.sleep();
   }
+}
+
+void MegaPoseClient::frameObject(const visp_megapose::ObjectName &command)
+{
+  got_name = true;
+  object_name = command.obj_name;
+  n_object = command.number;
+}
+
+void MegaPoseClient::BB3DCallback(const visp_megapose::BB3D &bb3d)
+{
+
+  // if (condition)
+  // {
+  //   /* code */
+  // }
+
+  // Convert 3D bounding box to 2D bounding box
+  cout <<object_name<<endl;
+
+  ROS_INFO("3D Bounding box pose: Translation (%f, %f, %f), Rotation (%f, %f, %f, %f), Dimensions: (%f, %f, %f)", 
+           bb3d.pose.translation.x, bb3d.pose.translation.y, bb3d.pose.translation.z, 
+           bb3d.pose.rotation.x, bb3d.pose.rotation.y, bb3d.pose.rotation.z, bb3d.pose.rotation.w,
+           bb3d.dim_x, bb3d.dim_y, bb3d.dim_z);
+  
+  // Save BB3D message
+  bb3d_msg = bb3d;
+
+  got_bb3d = true;
+
 }
 
 void MegaPoseClient::spin()

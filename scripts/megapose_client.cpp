@@ -1,25 +1,27 @@
+// Standard includes
 #include <fstream>
 #include <iostream>
 #include <nlohmann/json.hpp>
-#include <stdio.h>
+
+// Include Eigen library for matrix and vector operations
 #include <Eigen/Dense>
 
-// visp/OpenCV includes
+// ViSP and OpenCV includes
 #include <visp3/core/vpTime.h>
 #include <visp3/gui/vpDisplayX.h>
 #include <opencv2/opencv.hpp>
 
-// /visp bridge includes
+// ViSP bridge includes
 #include <visp_bridge/3dpose.h>
 #include <visp_bridge/camera.h>
 #include <visp_bridge/image.h>
 
-// ROS includes
+// ROS core includes
 #include <ros/ros.h>
 #include <tf2_ros/transform_broadcaster.h>
 #include <sensor_msgs/Image.h>
 
-// ROS visp_megapose includes
+// ROS visp_megapose service and message includes
 #include <visp_megapose/Init.h>
 #include <visp_megapose/Track.h>
 #include <visp_megapose/Render.h>
@@ -31,6 +33,7 @@
 #include <message_filters/time_synchronizer.h>
 #include <message_filters/sync_policies/approximate_time.h>
 
+// Include deque for buffer management
 #include <deque>
 
 using namespace std;
@@ -170,17 +173,18 @@ MegaPoseClient(ros::NodeHandle *nh)
   megapose_directory = "/home/" + user + "/catkin_ws/src/visp_megapose"; // Adjust this path as needed
 
   // Load parameters from the ROS parameter server
-  ros::param::get("image_topic", image_topic);
-  ros::param::get("camera_info_topic", camera_info_topic);
-  ros::param::get("camera_tf", camera_tf);
-  ros::param::get("object_name", object_name);
-  ros::param::get("depth_enable", depth_enable);
-  ros::param::get("depth_topic", depth_topic);
-  ros::param::get("reinitThreshold", reinitThreshold);
-  ros::param::get("refilterThreshold", refilterThreshold);
-  ros::param::get("buffer_size", buffer_size);
-  ros::param::get("detector_method", detector_method);
-  ros::param::get("bb3d_topic", bb3d_topic);
+ 
+  ros::param::get("image_topic", image_topic);             // Name of the image topic
+  ros::param::get("camera_info_topic", camera_info_topic); // Name of the camera info topic
+  ros::param::get("camera_tf", camera_tf);                 // Name of the camera frame
+  ros::param::get("object_name", object_name);             // Name of the object model
+  ros::param::get("depth_enable", depth_enable);           // Whether to use depth image
+  ros::param::get("depth_topic", depth_topic);             // Name of the depth image topic
+  ros::param::get("reinitThreshold", reinitThreshold);     // Reinit threshold for init and track service
+  ros::param::get("refilterThreshold", refilterThreshold); // Filter threshold for filter poses
+  ros::param::get("buffer_size", buffer_size);             // Buffer size for filter poses
+  ros::param::get("detector_method", detector_method);     // Detection method to use
+  ros::param::get("bb3d_topic", bb3d_topic);               // Name of the 3D bounding box topic
 
   // Subscribe to image and camera info topics
   image_sub.subscribe(nh_, image_topic, 1);
@@ -259,7 +263,7 @@ void MegaPoseClient::waitForBB3D()
 
 void MegaPoseClient::frameCallback_rgb(const sensor_msgs::ImageConstPtr &image, const sensor_msgs::CameraInfoConstPtr &cam_info)
 {
-try {
+
   // Store the received image and camera info
   rosI = image;
   roscam_info = cam_info;
@@ -274,13 +278,12 @@ try {
 
   // Update flag to indicate image availability
   got_image = true;
-} catch (const std::exception &e) {
-  ROS_ERROR("Error processing RGB frame: %s", e.what());
-}
+
 }
 
 void MegaPoseClient::frameCallback_rgbd(const sensor_msgs::ImageConstPtr &image, const sensor_msgs::CameraInfoConstPtr &cam_info, const sensor_msgs::ImageConstPtr &depth)
 {
+
   // Store the received image, depth, and camera info
   rosI = image;
   rosD = depth;
@@ -293,17 +296,13 @@ void MegaPoseClient::frameCallback_rgbd(const sensor_msgs::ImageConstPtr &image,
   heightD = depth->height;
 
   // Convert ROS image and camera info to ViSP format
-  try {
-    vpI = visp_bridge::toVispImageRGBa(*image);
-    vpcam_info = visp_bridge::toVispCameraParameters(*cam_info);
-  } catch (const std::exception &e) {
-    ROS_ERROR("Error converting ROS image or camera info to ViSP format: %s", e.what());
-    return;
-  }
+  vpI = visp_bridge::toVispImageRGBa(*image);
+  vpcam_info = visp_bridge::toVispCameraParameters(*cam_info);
 
   // Update flags to indicate data availability
   got_image = true;
   got_depth = true;
+
 }
 
 void MegaPoseClient::broadcastTransform(const geometry_msgs::Transform &transform, const string &child_frame_id, const string &camera_tf)
