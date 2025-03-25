@@ -1,101 +1,105 @@
 #!/usr/bin/env python3
 
-# Import necessary libraries and modules
-from visp_megapose.megapose_depend import *  # 3rd-party libraries
+from visp_megapose.megapose_depend import *               # 3rdparty libraries
 
-# Define paths to the dataset folder and other directories
+# Path to the dataset folder, change to your own path
 user = getpass.getuser()
-main_folder = "/home/" + user + "/visp-ws/visp/script"              # Path to the main directory of MegaPose
-megapose_folder = "/home/" + user + "/catkin_ws/src/visp_megapose"  # Path to the visp_megapose directory
-mesh_dir = megapose_folder + "/data/models"                         # Path to the directory containing 3D models
+main_folder = "/home/" + user + "/visp-ws/visp/script"               # The path to the directory of MegaPose
+megapose_folder = "/home/" + user + "/catkin_ws/src/visp_megapose"   # The path to the directory of visp_megapose
+mesh_dir = megapose_folder + "/data/models"                         # The path to the directory containing the 3D models    
 
-# Ensure the specified paths exist
+# Check for path existence
 mesh_dir = Path(mesh_dir).absolute()
 assert mesh_dir.exists(), 'Mesh directory does not exist, cannot start server'
-assert Path(main_folder).absolute().exists(), 'Main_folder directory does not exist, cannot start server'
+assert Path(main_folder).absolute().exists(), 'Main_folder directory does not exist, cannot start server' 
 
-# Set the environment variable for the MegaPose dataset
+# Path for the MegaPose dataset
 os.environ['MEGAPOSE_DATA_DIR'] = main_folder + "/megapose_server/megapose6d/data"
 
-# Import MegaPose-specific modules
-from megapose.datasets.object_dataset import RigidObject, RigidObjectDataset       # Object dataset handling
-from megapose.datasets.scene_dataset import CameraData, ObjectData                 # Scene dataset handling
-from megapose.inference.types import ObservationTensor, PoseEstimatesType          # Inference-related types
-from megapose.inference.utils import make_detections_from_object_data              # Utility for detections
-from megapose.utils.load_model import NAMED_MODELS, load_named_model               # Model loading utilities
-from megapose.lib3d.transform import Transform                                     # 3D transformations
-from megapose.utils.conversion import convert_scene_observation_to_panda3d         # Scene conversion utility
-from megapose.panda3d_renderer import Panda3dLightData                             # Panda3D light data
-from megapose.panda3d_renderer.panda3d_scene_renderer import Panda3dSceneRenderer  # Panda3D scene renderer
+# MegaPose
+from megapose.datasets.object_dataset import RigidObject, RigidObjectDataset # type: ignore
+from megapose.datasets.scene_dataset import CameraData, ObjectData # type: ignore
+from megapose.inference.types import ObservationTensor, PoseEstimatesType # type: ignore
+from megapose.inference.utils import make_detections_from_object_data # type: ignore
+from megapose.utils.load_model import NAMED_MODELS, load_named_model # type: ignore
+from megapose.lib3d.transform import Transform # type: ignore
+from megapose.utils.conversion import convert_scene_observation_to_panda3d # type: ignore
+from megapose.panda3d_renderer import Panda3dLightData # type: ignore
+from megapose.panda3d_renderer.panda3d_scene_renderer import Panda3dSceneRenderer # type: ignore
 
-# Load camera calibration parameters from a JSON file
+# Load camera information, can be generated with ros_imresize node
 data = json.loads(open(megapose_folder + '/params/camera.json').read())
 
-# Import ROS1 service and message definitions
+# Server ROS1
 from visp_megapose.srv import Init, Track, Render, InitResponse, TrackResponse, RenderResponse
 from sensor_msgs.msg import Image
 
-# Define the MegaPoseServer class
 class MegaPoseServer:
     def __init__(self):
-        # Define available MegaPose models and their configurations
+        # Parameters:
+        #     mesh_dir (string): The path to the directory containing the 3D models
+        #                        Each model is stored in a subfolder, where the subfolder name gives the name of the object
+        #                        A 3D model can be in .obj or .ply format. Units are assumed to be in meters
+        #     optimize (bool): Whether to optimize the deep network models for faster inference
+        #                      Still very experimental, and may result in a loss of accuracy with no performance gain!
+        #     warmup (bool): Whether to perform model warmup in order to avoid a slow first inference pass
+        #     num_workers (int): Number of workers for rendering
+        #     image_batch_size (int): Image batch dimension
+        #     megaposse_model (string): The name of the model to use. Options are:
+        #                              'RGB': RGB only model
+        #                              'RGBD': RGBD model
+        #                              'RGB-multi-hypothesis': RGB only model with multi-hypothesis
+        #                              'RGBD-multi-hypothesis': RGBD model with multi-hypothesis
+
         megapose_models = {
-            'RGB': ('megapose-1.0-RGB', False),
-            'RGBD': ('megapose-1.0-RGBD', True),
-            'RGB-multi-hypothesis': ('megapose-1.0-RGB-multi-hypothesis', False),
-            'RGBD-multi-hypothesis': ('megapose-1.0-RGB-multi-hypothesis-icp', True)
-        }
+                'RGB': ('megapose-1.0-RGB', False),
+                'RGBD': ('megapose-1.0-RGBD', True),
+                'RGB-multi-hypothesis': ('megapose-1.0-RGB-multi-hypothesis', False),
+                'RGBD-multi-hypothesis': ('megapose-1.0-RGB-multi-hypothesis-icp', True)
+            }
 
-        # Load camera data from the JSON file
         camera_data = {
-            'K': np.asarray([
-                [data['K'][0][0], 0.0, data['K'][0][2]],
-                [0.0, data['K'][1][1], data['K'][1][2]],
-                [0.0, 0.0, 1.0]
-            ]),
-            'h': data['h'],
-            'w': data['w']
+                'K': np.asarray([
+                    [data['K'][0][0], 0.0, data['K'][0][2]],
+                    [0.0, data['K'][1][1], data['K'][1][2]],
+                    [0.0, 0.0, 1.0]
+                ]),
+                'h': data['h'],
+                'w': data['w']
         }
 
-        # Retrieve model parameters from ROS parameter server
         model = rospy.get_param("~megapose_model")
         self.model_name = megapose_models[model][0]
         self.model_use_depth = megapose_models[model][1]
 
-        # Initialize server parameters
         self.mesh_dir = mesh_dir
         self.num_workers = 4
         self.optimize = False
         self.warmup = True
         self.image_batch_size = 256
 
-        # Load object dataset and model
+        
         self.object_dataset: RigidObjectDataset = self.make_object_dataset(self.mesh_dir)
         model_tuple = self._load_model(self.model_name)
         self.model_info = model_tuple[0]
         self.model = model_tuple[1]
         self.model.eval()
 
-        # Set model batch size and camera data
         self.model.bsz_images = self.image_batch_size
         self.camera_data = self._make_camera_data(camera_data)
         h, w = self.camera_data.resolution
         self.h = h
         self.w = w
 
-        # Initialize the Panda3D renderer
         self.renderer = Panda3dSceneRenderer(self.object_dataset)
 
-        # Configure PyTorch settings for performance
         torch.backends.cudnn.benchmark = True
         torch.backends.cudnn.deterministic = False
 
-        # Log camera and model information
         rospy.loginfo('Camera calibration parameter loaded from camera.json file')
-        rospy.loginfo('Model selected: %s', model)
-        rospy.loginfo('Camera resolution: %s, %s', self.w, self.h)
-
-        # Optimize models if enabled
+        rospy.loginfo ('Model selected: %s', model)
+        rospy.loginfo ('Camera resolution: %s, %s', self.w, self.h)
+        
         if self.optimize:
             rospy.loginfo('Optimizing Pytorch models...')
             class Optimized(nn.Module):
@@ -112,7 +116,6 @@ class MegaPoseServer:
             self.model.coarse_model.backbone = Optimized(self.model.coarse_model.backbone, (1, 9, self.h, self.w))
             self.model.refiner_model.backbone = Optimized(self.model.refiner_model.backbone, (1, 32 if self.model_info['requires_depth'] else 27, self.h, self.w))
 
-        # Perform model warmup if enabled
         if self.warmup:
             labels = self.object_dataset.label_to_objects.keys()
             rospy.loginfo('Models are: %s', list(labels))
@@ -123,17 +126,14 @@ class MegaPoseServer:
             self.model.run_inference_pipeline(observation, detections, **self.model_info['inference_parameters'])
         rospy.loginfo('Waiting for request...')
 
-        # Initialize ROS services
         self.srv_init_pose = rospy.Service("init_pose", Init, self.InitPoseCallback)
         self.srv_track_pose = rospy.Service("track_pose", Track, self.TrackPoseCallback)
         self.render_service = rospy.Service('render_object', Render, self.RenderObjectCallback)
 
     def _load_model(self, model_name):
-        # Load the specified model and return its information and instance
         return NAMED_MODELS[model_name], load_named_model(model_name, self.object_dataset, n_workers=self.num_workers).cuda()
-
+   
     def make_object_dataset(self, meshes_dir: Path) -> RigidObjectDataset:
-        # Create a dataset of rigid objects from the specified directory
         rigid_objects = []
         mesh_units = "m"
         object_dirs = meshes_dir.iterdir()
@@ -148,15 +148,15 @@ class MegaPoseServer:
             rigid_objects.append(RigidObject(label=label, mesh_path=mesh_path, mesh_units=mesh_units))
         rigid_object_dataset = RigidObjectDataset(rigid_objects)
         return rigid_object_dataset
-
+ 
     def _make_camera_data(self, camera_data: Dict) -> CameraData:
         '''
-        Create a camera representation that is understandable by MegaPose.
+        Create a camera representation that is understandable by megapose.
         camera_data: A dict containing the keys K, h, w
         K is the 3x3 intrinsics matrix
         h and w are the input image resolution.
 
-        Returns a CameraData object, to be given to MegaPose.
+        Returns a CameraData object, to be given to megapose.
         '''
         c = CameraData()
         c.K = camera_data['K']
@@ -164,9 +164,8 @@ class MegaPoseServer:
         c.z_near = 0.001
         c.z_far = 100000
         return c
-
+        
     def _make_detections(self, labels, detections):
-        # Create detections from object data
         result = []
         for label, detection in zip(labels, detections):
             o = ObjectData(label)
@@ -174,8 +173,8 @@ class MegaPoseServer:
             result.append(o)
 
         return make_detections_from_object_data(result)
-
-    def _make_observation_tensor(self, image: np.ndarray, depth: Optional[np.ndarray] = None) -> ObservationTensor:
+    
+    def _make_observation_tensor(self, image: np.ndarray, depth: Optional[np.ndarray]=None) -> ObservationTensor:
         '''
         Create an observation tensor from an image and a potential depth image
         '''
@@ -355,7 +354,7 @@ class MegaPoseServer:
         response.image.encoding = 'rgb8'
         response.image.is_bigendian = 0
         response.image.step = 3 * renderings.rgb.shape[1]
-        response.image.data = img
+        response.data = img
         return response
 
 if __name__ == '__main__':

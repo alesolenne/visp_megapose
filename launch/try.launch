@@ -1,0 +1,15 @@
+<launch>
+                      
+  <node pkg="visp_megapose" type="try.py" name="megapose_server" output="screen">
+    
+    <!-- megapose_model: The name of the model to use. Options are:
+                    'RGB': RGB only model
+                    'RGBD': RGBD model
+                    'RGB-multi-hypothesis': RGB only model with multi-hypothesis
+                    'RGBD-multi-hypothesis': RGBD model with multi-hypothesis -->
+                    
+    <param name="megapose_model" value="RGB" />
+
+  </node>
+
+</launch>
