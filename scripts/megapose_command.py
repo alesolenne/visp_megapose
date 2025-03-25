@@ -8,121 +8,111 @@ from visp_megapose.msg import ObjectName, PoseResult
 import tf.transformations as tr
 
 
-
 def callback(msg):
+  global current_object_index
+  global process_next_object
 
-    global i
-    global k
+  # Extract pose information
+  translation = msg.pose.translation
+  rotation = msg.pose.rotation
 
-    x = msg.pose.translation
-    q = msg.pose.rotation
-    if msg.skip == True :
-        grasp_pose(x, q,  object_list[i], i)
+  if msg.skip:
+    generate_grasp_pose(translation, rotation, object_list[current_object_index], current_object_index)
 
-        while (i <= (n_object) and k):
-              
-              k = False
-              print("Object found and grasp pose for " + object_list[i] + " generated!")
-              i = i + 1
-              if (i < n_object):
-                 print("Generate the bounding box for " + object_list[i] + " with interface!")
+    while current_object_index < num_objects and process_next_object:
+      process_next_object = False
+      rospy.loginfo(f"Object found and grasp pose for {object_list[current_object_index]} generated!")
+      current_object_index += 1
 
-
-
-def grasp_pose(x, q, name, i):
-    (r,p,y) = tr.euler_from_quaternion([q.x, q.y, q.z, q.w], 'sxyz')
-    RT2 = tr.euler_matrix(r, p, y, 'sxyz')
-    RT2[0,3] = x.x
-    RT2[1,3] = x.y
-    RT2[2,3] = x.z
-
-    # Trasformazione per portare frame sulla superficie dell'oggetto
-    if (name == 'box1' or name == 'box1_6' or name == 'box1_3'):
-      a =  0.063
-    elif name == 'box2':
-      a = 0.024
-    elif name == 'box3':
-      a = 0.049
-    elif name == 'box4':
-      a = 0.04
-    elif name == 'box5':
-      a = 0.06
-    elif name == 'cube':
-      a = 0.06
-    elif name == 'cubo_verde':
-      a = 0.06
-    else:
-      rospy.logerr("%s is not a valid model", name)
+      if current_object_index < num_objects:
+        rospy.loginfo(f"Generate the bounding box for {object_list[current_object_index]} with interface!")
 
 
-    T = np.array([[    1,   0.0,    0.0,   0.0],
-                  [   0.0,    1,    0.0,     a],
-                  [   0.0,  0.0,      1,   0.0],
-                  [   0.0,  0.0,    0.0,     1]])
+def generate_grasp_pose(translation, rotation, object_name, index):
+  # Convert quaternion to Euler angles
+  roll, pitch, yaw = tr.euler_from_quaternion([rotation.x, rotation.y, rotation.z, rotation.w], 'sxyz')
+  transformation_matrix = tr.euler_matrix(roll, pitch, yaw, 'sxyz')
+  transformation_matrix[0, 3] = translation.x
+  transformation_matrix[1, 3] = translation.y
+  transformation_matrix[2, 3] = translation.z
 
-    T12 = np.matmul(RT2, T) 
+  # Adjust frame to the surface of the object
+  object_offsets = {
+    'box1': 0.063, 'box1_6': 0.063, 'box1_3': 0.063,
+    'box2': 0.024, 'box3': 0.049, 'box4': 0.04,
+    'box5': 0.06, 'cube': 0.06, 'cubo_verde': 0.06
+  }
+  offset = object_offsets.get(object_name, None)
 
-    q12 = tr.quaternion_from_matrix(T12)
-    T12 = T12[0:3,3]
+  if offset is None:
+    rospy.logerr(f"{object_name} is not a valid model")
+    return
 
-    s[i, 0:3] = T12
-    s[i, 3:] = q12
+  adjustment_matrix = np.array([
+    [1, 0.0, 0.0, 0.0],
+    [0.0, 1, 0.0, offset],
+    [0.0, 0.0, 1, 0.0],
+    [0.0, 0.0, 0.0, 1]
+  ])
 
+  final_transformation = np.matmul(transformation_matrix, adjustment_matrix)
+  quaternion = tr.quaternion_from_matrix(final_transformation)
+  position = final_transformation[0:3, 3]
+
+  # Store the transformation
+  object_poses[index, 0:3] = position
+  object_poses[index, 3:] = quaternion
 
 
 if __name__ == '__main__':
+  rospy.init_node('command', anonymous=True)
 
-    n_object = rospy.get_param("n_object")
-    print('Number of objects:' + str(n_object))
+  # Get the number of objects and their names
+  num_objects = rospy.get_param("n_object")
+  rospy.loginfo(f"Number of objects: {num_objects}")
 
-    object_list = []
-    i = 0
-    v = 0
-    s = np.zeros((n_object, 7))
-    header_frame = 'robot_arm_link0'
+  object_list = [rospy.get_param(f"object_name_{i+1}") for i in range(num_objects)]
+  for idx, obj_name in enumerate(object_list, start=1):
+    rospy.loginfo(f"Object number {idx}: {obj_name}")
 
+  rospy.loginfo(f"Generate the bounding box for {object_list[0]} with interface!")
 
-    for c in range(n_object):
-        object_name = rospy.get_param("object_name_" + str(c+1))
-        object_list.append(object_name)
-        print('Object number '+ str(c+1) +': '+ object_name)
+  # Initialize variables
+  current_object_index = 0
+  process_next_object = True
+  object_poses = np.zeros((num_objects, 7))
+  header_frame = 'robot_arm_link0'
 
-    print("Generate the bounding box for " + object_list[0] + " with interface!")
+  # Publishers and subscribers
+  object_publisher = rospy.Publisher('ObjectList', ObjectName, queue_size=10)
+  pose_subscriber = rospy.Subscriber('PoseResult', PoseResult, callback)
+  tf_publisher = rospy.Publisher("/tf", TFMessage, queue_size=10)
 
-    pub = rospy.Publisher('ObjectList', ObjectName, queue_size=10)
-    response = rospy.Subscriber('PoseResult', PoseResult, callback)
-    pub_tf = rospy.Publisher("/tf", TFMessage, queue_size=10)
+  rate = rospy.Rate(10)  # 10 Hz
 
+  while not rospy.is_shutdown():
+    if current_object_index < num_objects:
+      process_next_object = True
+      msg = ObjectName()
+      msg.obj_name = object_list[current_object_index]
+      msg.number = num_objects
+      object_publisher.publish(msg)
 
-    rospy.init_node('command', anonymous=True)
+    # Publish transformations for already processed objects
+    for idx in range(current_object_index):
+      transform = geometry_msgs.msg.TransformStamped()
+      transform.header.frame_id = header_frame
+      transform.header.stamp = rospy.Time.now()
+      transform.child_frame_id = f"object_{idx}"
+      transform.transform.translation.x = object_poses[idx][0]
+      transform.transform.translation.y = object_poses[idx][1]
+      transform.transform.translation.z = object_poses[idx][2]
+      transform.transform.rotation.x = object_poses[idx][3]
+      transform.transform.rotation.y = object_poses[idx][4]
+      transform.transform.rotation.z = object_poses[idx][5]
+      transform.transform.rotation.w = object_poses[idx][6]
 
+      tf_message = TFMessage([transform])
+      tf_publisher.publish(tf_message)
 
-
-    while not rospy.is_shutdown():
-        if (i < n_object):
-            k = True
-            msg = ObjectName()
-            msg.obj_name = object_list[i]
-            msg.number = n_object
-            rate = rospy.Rate(10) 
-            pub.publish(msg)
-        
-        for v in range(i):
-            
-            child_frame = object_list[v]
-            t1 = geometry_msgs.msg.TransformStamped()
-            t1.header.frame_id = header_frame
-            t1.header.stamp = rospy.Time.now()
-            t1.child_frame_id = "object_" + str(v)
-            t1.transform.translation.x = s[v][0]
-            t1.transform.translation.y = s[v][1]
-            t1.transform.translation.z = s[v][2]
-            t1.transform.rotation.x = s[v][3]
-            t1.transform.rotation.y = s[v][4]
-            t1.transform.rotation.z = s[v][5]
-            t1.transform.rotation.w = s[v][6]
-
-            tfm1 = TFMessage([t1])
-            pub_tf.publish(tfm1)
-
-        rate.sleep()
+    rate.sleep()
