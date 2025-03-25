@@ -120,9 +120,7 @@ class MegaPoseClient
 
   // Functions
 
-  void waitForImage();
-  void waitForDepth();
-  void waitForBB3D();
+  void waitForData(const string &data_type);
   void frameCallback_rgb(const sensor_msgs::ImageConstPtr &image, const sensor_msgs::CameraInfoConstPtr &camera_info);
   void frameCallback_rgbd(const sensor_msgs::ImageConstPtr &image, const sensor_msgs::CameraInfoConstPtr &cam_info, const sensor_msgs::ImageConstPtr &depth);
   optional<vpRect> detectObjectForInitMegaposeClick(const string &object_name);
@@ -133,7 +131,6 @@ class MegaPoseClient
   void init_service_response_callback(const visp_megapose::Init::Response &future);
   void track_service_response_callback(const visp_megapose::Track::Response &future);
 
-  void waitForName();
   void frameObject(const visp_megapose::ObjectName &command);
   void BB3DCallback(const visp_megapose::BB3D &bb3d);
 
@@ -145,7 +142,7 @@ MegaPoseClient(ros::NodeHandle *nh)
     got_image(false),
     got_depth(false),
     got_bb3d(false),
-    object_found(0);
+    object_found(0)
 { 
   // Retrieve the username for constructing the megapose directory path
   char username[32];
@@ -199,45 +196,23 @@ MegaPoseClient(ros::NodeHandle *nh)
 void spin();
 };
 
-void MegaPoseClient::waitForImage()
+void MegaPoseClient::waitForData(const string &data_type)
 {
   ros::Rate loop_rate(10);
-  ROS_INFO("Waiting for a rectified image...");
-  while (ros::ok()) {
-    if (got_image) {
-      ROS_INFO("Got image!");
-      return;
-    }
-    ros::spinOnce();
-    loop_rate.sleep();
+  if (data_type == "image" || data_type == "depth" || data_type == "BB3D") {
+    ROS_INFO("Waiting for %s...", data_type.c_str());
   }
-}
 
-void MegaPoseClient::waitForDepth()
- {
-   ros::Rate loop_rate(10);
-   ROS_INFO("Waiting for a rectified depth...");
-   while (ros::ok())
-   {
-     if (got_depth)
-     {
-       ROS_INFO("Got Depth image!");
-       return;
-     }
-     ros::spinOnce();
-     loop_rate.sleep();
-   }
- }
- 
-void MegaPoseClient::waitForBB3D()
-{
-  ros::Rate loop_rate(10);
-  ROS_INFO("Waiting for BB3D message...");
   while (ros::ok())
   {
-    if (got_bb3d)
+    if ((data_type == "image" && got_image) ||
+        (data_type == "depth" && got_depth) ||
+        (data_type == "BB3D" && got_bb3d))
     {
-      ROS_INFO("Got the bounding box!");
+      ROS_INFO("Got %s!", data_type.c_str());
+      return;
+    }
+    if (data_type == "name" && got_name){
       return;
     }
     ros::spinOnce();
@@ -451,24 +426,24 @@ DetectionMethod MegaPoseClient::getDetectionMethodFromString(const std::string &
 
 void MegaPoseClient::init_service_response_callback(const visp_megapose::Init::Response &future)
 {
+// Update the transform and confidence from the response
 transform = future.pose;
 confidence = future.confidence;
 ROS_INFO("Bounding box generated, checking the confidence");
 
-
+// Handle reinitialization or successful initialization based on confidence
 if (confidence < reinitThreshold) {
-    ROS_INFO("Initial pose not reliable, reinitializing...");
-}
-else {
+    ROS_WARN("Initial pose not reliable (%.2f < %.2f). Reinitializing...", confidence, reinitThreshold);
+} else {
     initialized = true;
     init_request_done = false;
-    ROS_INFO("Initialized successfully!");
+    ROS_INFO("Initialization successful with confidence: %.2f", confidence);
 }
 }
 
 void MegaPoseClient::track_service_response_callback(const visp_megapose::Track::Response &future)
 {
-
+  // Update the transform and confidence from the response
   transform = future.pose;
   confidence = future.confidence;
   initialized = false;
@@ -476,11 +451,8 @@ void MegaPoseClient::track_service_response_callback(const visp_megapose::Track:
 
   if (confidence < reinitThreshold) {
 
-
-      ROS_INFO("Tracking lost, reinitializing...");
-
-  } else {        
-              
+    ROS_WARN("Tracking lost. Confidence below threshold (%.2f < %.2f). Reinitializing...", confidence, reinitThreshold);
+  } else {                      
               visp_megapose::PoseResult res;
               res.pose = transform;
               res.skip = true;
@@ -508,18 +480,6 @@ void MegaPoseClient::track_service_response_callback(const visp_megapose::Track:
 
          }
 
-}
-
-void MegaPoseClient::waitForName()
-{
-  ros::Rate loop_rate(10);
-  while (ros::ok()) {
-    if (got_name) {
-      return;
-    }
-    ros::spinOnce();
-    loop_rate.sleep();
-  }
 }
 
 void MegaPoseClient::frameObject(const visp_megapose::ObjectName &command)
@@ -557,12 +517,18 @@ void MegaPoseClient::spin()
   ROS_INFO("Subscribing to image topic: %s", image_topic.c_str());
   ROS_INFO("Subscribing to camera info topic: %s", camera_info_topic.c_str());  
 
-  waitForImage();
+  waitForData("image");
   if (depth_enable)
    {
      ROS_INFO("Subscribing to depth topic: %s", depth_topic.c_str());
-     waitForDepth();
-   }
+     waitForData("depth");
+    }
+  if (getDetectionMethodFromString(detector_method) == BB3D)
+  {
+    ROS_INFO("Subscribing to BB3D topic: %s", bb3d_topic.c_str());
+    waitForData("BB3D");
+    bb3d_sub.shutdown();
+  }
 
   vpDisplayX *d = NULL;
   d = new vpDisplayX();
@@ -572,26 +538,48 @@ void MegaPoseClient::spin()
 
   ros::ServiceClient init_pose_client = nh_.serviceClient<visp_megapose::Init>("init_pose");
   ros::ServiceClient track_pose_client = nh_.serviceClient<visp_megapose::Track>("track_pose");
-  ros::ServiceClient render_client = nh_.serviceClient<visp_megapose::Render>("render_object");
 
-  while (!init_pose_client.waitForExistence(ros::Duration(10)) && !track_pose_client.waitForExistence(ros::Duration(10)) && !render_client.waitForExistence(ros::Duration(10))) {
-    if (!ros::ok()) {
-      ROS_ERROR("Interrupted while waiting for the service. Exiting.");
-      return;
+  // Wait for all required services to become available
+  while (ros::ok()) {
+    if (init_pose_client.waitForExistence(ros::Duration(10)) &&
+        track_pose_client.waitForExistence(ros::Duration(10))) {
+          ROS_INFO("All required services are available.");
+          break;
     }
-    ROS_INFO("Service not available, waiting again...");
+    ROS_WARN("Some services are still unavailable. Retrying...");
   }
 
+  // Main processing loop
   while (ros::ok()) {
     vpDisplay::display(vpI);
     ros::spinOnce();
-    optional<vpRect> detection = nullopt;
 
     if (!initialized) {
-  
-       waitForName();
 
-       detection = detectObjectForInitMegaposeClick(object_name);
+       optional<vpRect> detection = nullopt;
+  
+       waitForData("name");
+
+       DetectionMethod method = getDetectionMethodFromString(detector_method);
+
+       switch (method)
+       {
+         case BB3D:
+           detection = detectObjectForInitMegaposeBB3D(bb3d_msg);
+           break;
+ 
+         case CLICK:
+           detection = detectObjectForInitMegaposeClick(object_name);
+           break;
+ 
+         case LOAD:
+           detection = detectObjectForInitMegaposeLoad(object_name);
+           break;
+ 
+         default:
+           ROS_WARN("Unsupported detection method: %s", detector_method.c_str());
+           ros::shutdown();
+       }
        
       if (detection && init_request_done) {
 
