@@ -761,7 +761,6 @@ void MegaPoseClient::BB3DCallback(const visp_megapose::BB3D &bb3d)
   // }
 
   // Convert 3D bounding box to 2D bounding box
-  cout <<object_name<<endl;
 
   ROS_INFO("3D Bounding box pose: Translation (%f, %f, %f), Rotation (%f, %f, %f, %f), Dimensions: (%f, %f, %f)", 
            bb3d.pose.translation.x, bb3d.pose.translation.y, bb3d.pose.translation.z, 

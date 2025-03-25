@@ -477,6 +477,7 @@ void MegaPoseClient::track_service_response_callback(const visp_megapose::Track:
               ROS_INFO("Pose saved on %s.json file!", object_name.c_str());
 
               got_name = false;
+              got_bb3d = false;
 
          }
 
@@ -498,7 +499,6 @@ void MegaPoseClient::BB3DCallback(const visp_megapose::BB3D &bb3d)
   // }
 
   // Convert 3D bounding box to 2D bounding box
-  cout <<object_name<<endl;
 
   ROS_INFO("3D Bounding box pose: Translation (%f, %f, %f), Rotation (%f, %f, %f, %f), Dimensions: (%f, %f, %f)", 
            bb3d.pose.translation.x, bb3d.pose.translation.y, bb3d.pose.translation.z, 
@@ -526,8 +526,6 @@ void MegaPoseClient::spin()
   if (getDetectionMethodFromString(detector_method) == BB3D)
   {
     ROS_INFO("Subscribing to BB3D topic: %s", bb3d_topic.c_str());
-    waitForData("BB3D");
-    bb3d_sub.shutdown();
   }
 
   vpDisplayX *d = NULL;
@@ -566,6 +564,7 @@ void MegaPoseClient::spin()
        {
          case BB3D:
            detection = detectObjectForInitMegaposeBB3D(bb3d_msg);
+           waitForData("BB3D");
            break;
  
          case CLICK:
