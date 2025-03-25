@@ -259,99 +259,142 @@ void MegaPoseClient::waitForBB3D()
 
 void MegaPoseClient::frameCallback_rgb(const sensor_msgs::ImageConstPtr &image, const sensor_msgs::CameraInfoConstPtr &cam_info)
 {
-rosI = image;
-roscam_info = cam_info;
-width = image->width;
-height = image->height;
+try {
+  // Store the received image and camera info
+  rosI = image;
+  roscam_info = cam_info;
 
-vpI = visp_bridge::toVispImageRGBa(*image);
-vpcam_info = visp_bridge::toVispCameraParameters(*cam_info);
+  // Extract image dimensions
+  width = image->width;
+  height = image->height;
 
-got_image = true;
+  // Convert ROS image and camera info to ViSP format
+  vpI = visp_bridge::toVispImageRGBa(*image);
+  vpcam_info = visp_bridge::toVispCameraParameters(*cam_info);
+
+  // Update flag to indicate image availability
+  got_image = true;
+} catch (const std::exception &e) {
+  ROS_ERROR("Error processing RGB frame: %s", e.what());
+}
 }
 
 void MegaPoseClient::frameCallback_rgbd(const sensor_msgs::ImageConstPtr &image, const sensor_msgs::CameraInfoConstPtr &cam_info, const sensor_msgs::ImageConstPtr &depth)
 {
+  // Store the received image, depth, and camera info
   rosI = image;
   rosD = depth;
   roscam_info = cam_info;
+
+  // Extract dimensions for RGB and depth images
   width = image->width;
   height = image->height;
   widthD = depth->width;
   heightD = depth->height;
 
-  vpI = visp_bridge::toVispImageRGBa(*image);
-  vpcam_info = visp_bridge::toVispCameraParameters(*cam_info);
+  // Convert ROS image and camera info to ViSP format
+  try {
+    vpI = visp_bridge::toVispImageRGBa(*image);
+    vpcam_info = visp_bridge::toVispCameraParameters(*cam_info);
+  } catch (const std::exception &e) {
+    ROS_ERROR("Error converting ROS image or camera info to ViSP format: %s", e.what());
+    return;
+  }
 
+  // Update flags to indicate data availability
   got_image = true;
   got_depth = true;
 }
 
 void MegaPoseClient::broadcastTransform(const geometry_msgs::Transform &transform, const string &child_frame_id, const string &camera_tf)
 {
-  static tf2_ros::TransformBroadcaster br;  
-  static geometry_msgs::TransformStamped transformStamped;
+  static tf2_ros::TransformBroadcaster br;
+  geometry_msgs::TransformStamped transformStamped;
+
+  // Populate the transformStamped message
   transformStamped.header.stamp = ros::Time::now();
   transformStamped.header.frame_id = camera_tf;
   transformStamped.child_frame_id = child_frame_id;
   transformStamped.transform = transform;
+
+  // Broadcast the transform
   br.sendTransform(transformStamped);
 }
 
 void MegaPoseClient::broadcastTransform_filter(const geometry_msgs::Transform &origpose, const string &child_frame_id, const string &camera_tf)
 {
-  if (confidence > refilterThreshold)
-  {
-    if (buffer_x.size() >= buffer_size)
-      for (auto &buffer : {&buffer_x, &buffer_y, &buffer_z, &buffer_qw, &buffer_qx, &buffer_qy, &buffer_qz}) buffer->pop_front();
+  if (confidence <= refilterThreshold)
+    return;
 
-    buffer_x.push_back(origpose.translation.x);
-    buffer_y.push_back(origpose.translation.y);
-    buffer_z.push_back(origpose.translation.z);
-    buffer_qw.push_back(origpose.rotation.w);
-    buffer_qx.push_back(origpose.rotation.x);
-    buffer_qy.push_back(origpose.rotation.y);
-    buffer_qz.push_back(origpose.rotation.z);
-
-    filter_transform.translation.x = calculateMovingAverage(buffer_x);
-    filter_transform.translation.y = calculateMovingAverage(buffer_y);
-    filter_transform.translation.z = calculateMovingAverage(buffer_z);
-    filter_transform.rotation.w = calculateMovingAverage(buffer_qw);
-    filter_transform.rotation.x = calculateMovingAverage(buffer_qx);
-    filter_transform.rotation.y = calculateMovingAverage(buffer_qy);
-    filter_transform.rotation.z = calculateMovingAverage(buffer_qz);
-
-    static tf2_ros::TransformBroadcaster br2;
-    geometry_msgs::TransformStamped transformStamped;
-    transformStamped.header.stamp = ros::Time::now();
-    transformStamped.header.frame_id = camera_tf;
-    transformStamped.child_frame_id = child_frame_id + "_filtered";
-    transformStamped.transform = filter_transform;
-    br2.sendTransform(transformStamped);
+  // Maintain buffer size by removing oldest elements
+  if (buffer_x.size() >= buffer_size) {
+    for (auto &buffer : {&buffer_x, &buffer_y, &buffer_z, &buffer_qw, &buffer_qx, &buffer_qy, &buffer_qz}) {
+      buffer->pop_front();
+    }
   }
+
+  // Add new values to buffers
+  buffer_x.push_back(origpose.translation.x);
+  buffer_y.push_back(origpose.translation.y);
+  buffer_z.push_back(origpose.translation.z);
+  buffer_qw.push_back(origpose.rotation.w);
+  buffer_qx.push_back(origpose.rotation.x);
+  buffer_qy.push_back(origpose.rotation.y);
+  buffer_qz.push_back(origpose.rotation.z);
+
+  // Calculate moving averages for filtered transform
+  filter_transform.translation.x = calculateMovingAverage(buffer_x);
+  filter_transform.translation.y = calculateMovingAverage(buffer_y);
+  filter_transform.translation.z = calculateMovingAverage(buffer_z);
+  filter_transform.rotation.w = calculateMovingAverage(buffer_qw);
+  filter_transform.rotation.x = calculateMovingAverage(buffer_qx);
+  filter_transform.rotation.y = calculateMovingAverage(buffer_qy);
+  filter_transform.rotation.z = calculateMovingAverage(buffer_qz);
+
+  // Broadcast the filtered transform
+  static tf2_ros::TransformBroadcaster br2;
+  geometry_msgs::TransformStamped transformStamped;
+  transformStamped.header.stamp = ros::Time::now();
+  transformStamped.header.frame_id = camera_tf;
+  transformStamped.child_frame_id = child_frame_id + "_filtered";
+  transformStamped.transform = filter_transform;
+  br2.sendTransform(transformStamped);
 }
 
 void MegaPoseClient::boundingbox_filter(const float (&bb)[4])
 {
-  if (confidence > refilterThreshold)
+  if (confidence <= refilterThreshold)
+    return;
+
+  // Maintain buffer size by removing oldest elements
+  if (buffer_bb1.size() >= buffer_size)
   {
-    if (buffer_bb1.size() >= buffer_size)
-      for (auto &buffer : {&buffer_bb1, &buffer_bb2, &buffer_bb3, &buffer_bb4}) buffer->pop_front();
-
-    buffer_bb1.push_back(bb[0]);
-    buffer_bb2.push_back(bb[1]);
-    buffer_bb3.push_back(bb[2]);
-    buffer_bb4.push_back(bb[3]);
-
-    for (int i = 0; i < 4; ++i)
-      this->bb[i] = calculateMovingAverage(*(&buffer_bb1 + i));
+    for (auto &buffer : {&buffer_bb1, &buffer_bb2, &buffer_bb3, &buffer_bb4})
+    {
+      buffer->pop_front();
+    }
   }
+
+  // Add new bounding box values to buffers
+  buffer_bb1.push_back(bb[0]);
+  buffer_bb2.push_back(bb[1]);
+  buffer_bb3.push_back(bb[2]);
+  buffer_bb4.push_back(bb[3]);
+
+  // Update the filtered bounding box using moving averages
+  this->bb[0] = calculateMovingAverage(buffer_bb1);
+  this->bb[1] = calculateMovingAverage(buffer_bb2);
+  this->bb[2] = calculateMovingAverage(buffer_bb3);
+  this->bb[3] = calculateMovingAverage(buffer_bb4);
 }
 
 double MegaPoseClient::calculateMovingAverage(const deque<double>& buffer)
 {
-  if (buffer.size() < 1) return 0.0;  // Avoid division by zero
-  return accumulate(buffer.begin(), buffer.end(), 0.0) / buffer.size();
+  if (buffer.empty()) {
+    ROS_WARN("Buffer is empty, returning 0.0 as moving average.");
+    return 0.0;  // Avoid division by zero
+  }
+  return std::accumulate(buffer.begin(), buffer.end(), 0.0) / static_cast<double>(buffer.size());
 }
 
 void MegaPoseClient::displayScore(float confidence)
@@ -430,46 +473,74 @@ void MegaPoseClient::displayEvent(const optional<vpRect> &detection)
 
 void MegaPoseClient::savePose() 
 {
-  ofstream output_file(megapose_directory + "/output/pose/" + object_name + "_pose.json", ios::out);
-  json outJson;
+  try {
+    // Construct the output file path
+    string output_file_path = megapose_directory + "/output/pose/" + object_name + "_pose.json";
 
-  double translation[3] = {transform.translation.x, transform.translation.y, transform.translation.z};
-  double rotation[4] = {transform.rotation.x, transform.rotation.y, transform.rotation.z, transform.rotation.w};
+    // Open the file for writing
+    ofstream output_file(output_file_path, ios::out);
+    if (!output_file.is_open()) {
+      ROS_ERROR("Failed to open file for writing: %s", output_file_path.c_str());
+      return;
+    }
 
-  outJson["object_name"] = object_name;
-  outJson["position"] = {translation[0], translation[1], translation[2]};
-  outJson["rotation"] = {rotation[0], rotation[1], rotation[2], rotation[3]};
+    // Prepare the JSON object
+    json outJson;
+    outJson["object_name"] = object_name;
+    outJson["position"] = {transform.translation.x, transform.translation.y, transform.translation.z};
+    outJson["rotation"] = {transform.rotation.x, transform.rotation.y, transform.rotation.z, transform.rotation.w};
 
-  output_file << outJson.dump(4);
-  output_file.close();
+    // Write the JSON object to the file
+    output_file << outJson.dump(4);
+    output_file.close();
 
-  ROS_INFO("Pose saved to %s_pose.json!", object_name.c_str());
+    ROS_INFO("Pose saved successfully to %s", output_file_path.c_str());
+  } catch (const std::exception &e) {
+    ROS_ERROR("An error occurred while saving the pose: %s", e.what());
+  }
 }
 
 void MegaPoseClient::displayInitBoundingBox() 
 {
-  ifstream bb_file(megapose_directory + "/output/bb/" + object_name + "_bb.json", ios::in);
-  if (!bb_file.is_open()) {
-    ROS_WARN("Failed to open bounding box file for object: %s", object_name.c_str());
-    return;
+  try {
+    // Construct the file path for the bounding box JSON
+    string bb_file_path = megapose_directory + "/output/bb/" + object_name + "_bb.json";
+
+    // Open the file for reading
+    ifstream bb_file(bb_file_path, ios::in);
+    if (!bb_file.is_open()) {
+      ROS_WARN("Failed to open bounding box file for object: %s", object_name.c_str());
+      return;
+    }
+
+    // Parse the JSON content
+    json bb_in;
+    bb_file >> bb_in;
+    bb_file.close();
+
+    // Extract bounding box coordinates
+    vpImagePoint init_topLeft(bb_in["point1"][0], bb_in["point1"][1]);
+    vpImagePoint init_bottomRight(bb_in["point2"][0], bb_in["point2"][1]);
+
+    // Display the bounding box on the image
+    vpDisplay::displayRectangle(vpI, init_topLeft, init_bottomRight, vpColor::blue, false, 2);
+  } catch (const std::exception &e) {
+    ROS_ERROR("Error displaying initial bounding box: %s", e.what());
   }
-
-  json bb_in;
-  bb_file >> bb_in;
-  bb_file.close();
-
-  vpImagePoint init_topLeft(bb_in["point1"][0], bb_in["point1"][1]);
-  vpImagePoint init_bottomRight(bb_in["point2"][0], bb_in["point2"][1]);
-
-  vpDisplay::displayRectangle(vpI, init_topLeft, init_bottomRight, vpColor::blue, false, 2);
 }
 
 void MegaPoseClient::displayTrackingBoundingBox() 
 {
+  // Apply bounding box filtering
   boundingbox_filter(bb);
-  vpImagePoint topLeft(bb[1], bb[0]);
-  vpImagePoint bottomRight(bb[3], bb[2]);
+
+  // Define top-left and bottom-right points for the bounding box
+  const vpImagePoint topLeft(bb[1], bb[0]);
+  const vpImagePoint bottomRight(bb[3], bb[2]);
+
+  // Display the bounding box on the image
   vpDisplay::displayRectangle(vpI, topLeft, bottomRight, vpColor::red, false, 2);
+
 }
 
 vpColor MegaPoseClient::interpolate(const vpColor &low, const vpColor &high, const float f)
@@ -642,60 +713,73 @@ DetectionMethod MegaPoseClient::getDetectionMethodFromString(const std::string &
 
 void MegaPoseClient::init_service_response_callback(const visp_megapose::Init::Response &future)
 {
+  // Update the transform and confidence from the response
   transform = future.pose;
   confidence = future.confidence;
-  ROS_INFO("Bounding box generated, checking the confidence");
+  ROS_INFO("Bounding box generated. Checking confidence...");
 
-  if (confidence < refilterThreshold)
-  {
+  // Clear buffers if confidence is below the refilter threshold
+  if (confidence < refilterThreshold) {
     for (auto &buffer : {&buffer_x, &buffer_y, &buffer_z, &buffer_qw, &buffer_qx, &buffer_qy, &buffer_qz, 
-               &buffer_bb1, &buffer_bb2, &buffer_bb3, &buffer_bb4}) {
+                         &buffer_bb1, &buffer_bb2, &buffer_bb3, &buffer_bb4}) {
       buffer->clear();
     }
   }
 
+  // Handle reinitialization or successful initialization based on confidence
   if (confidence < reinitThreshold) {
-      ROS_INFO("Initial pose not reliable, reinitializing...");
-  }
-  else {
-      initialized = true;
-      init_request_done = false;
-      flag_track = false;
-      flag_render = false;
-      ROS_INFO("Initialized successfully!");
+    ROS_WARN("Initial pose not reliable (%.2f < %.2f). Reinitializing...", confidence, reinitThreshold);
+  } else {
+    initialized = true;
+    init_request_done = false;
+    flag_track = false;
+    flag_render = false;
+    ROS_INFO("Initialization successful with confidence: %.2f", confidence);
   }
 }
 
 void MegaPoseClient::track_service_response_callback(const visp_megapose::Track::Response &future)
 {
+  // Update the transform and confidence from the response
   transform = future.pose;
   confidence = future.confidence;
+
+  // Update the bounding box coordinates from the response
   std::copy(std::begin(future.bb), std::end(future.bb), std::begin(bb));
 
+  // Handle tracking status based on confidence
   if (confidence < reinitThreshold) {
-      initialized = false;
-      init_request_done = true;
-      flag_track = false;
-      flag_render = false;
-      
-      ROS_INFO("Tracking lost, reinitializing...");
-  } else { if(!flag_track){
-              ROS_INFO("Object tracked successfully!");
-              flag_track = true; //print only once
-            }
+    initialized = false;
+    init_request_done = true;
+    flag_track = false;
+    flag_render = false;
+
+    ROS_WARN("Tracking lost. Confidence below threshold (%.2f < %.2f). Reinitializing...", confidence, reinitThreshold);
+  } else {
+    if (!flag_track) {
+      ROS_INFO("Object tracked successfully with confidence: %.2f", confidence);
+      flag_track = true; // Log success only once
+    }
   }
 }
 
 void MegaPoseClient::render_service_response_callback(const visp_megapose::Render::Response &future)
 {
-  overlay_img = visp_bridge::toVispImageRGBa(future.image);
-  if (overlay_img.getSize() > 0){
-    overlayRender(overlay_img);
-  if(!flag_render){
-      ROS_INFO("Model rendered successfully!");
-      flag_render = true; //print only once
+    // Convert the received image to ViSP format
+    overlay_img = visp_bridge::toVispImageRGBa(future.image);
+
+    // Check if the overlay image has valid size
+    if (overlay_img.getSize() > 0) {
+      overlayRender(overlay_img);
+
+      // Log success message only once
+      if (!flag_render) {
+        ROS_INFO("Model rendered successfully!");
+        flag_render = true;
+      }
+    } else {
+      ROS_WARN("Received an empty overlay image. Skipping rendering.");
     }
-  }
 }
 
 void MegaPoseClient::BB3DCallback(const visp_megapose::BB3D &bb3d)
