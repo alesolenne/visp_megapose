@@ -791,6 +791,7 @@ void MegaPoseClient::BB3DCallback(const visp_megapose::BB3D &bb3d)
   // }
 
   // Convert 3D bounding box to 2D bounding box
+  cout <<object_name<<endl;
 
   ROS_INFO("3D Bounding box pose: Translation (%f, %f, %f), Rotation (%f, %f, %f, %f), Dimensions: (%f, %f, %f)", 
            bb3d.pose.translation.x, bb3d.pose.translation.y, bb3d.pose.translation.z, 
@@ -850,7 +851,7 @@ void MegaPoseClient::spin()
       optional<vpRect> detection = nullopt;
 
       for (auto &buffer : {&buffer_x, &buffer_y, &buffer_z, &buffer_qw, &buffer_qx, &buffer_qy, &buffer_qz, 
-               &buffer_bb1, &buffer_bb2, &buffer_bb3, &buffer_bb4}) {
+                           &buffer_bb1, &buffer_bb2, &buffer_bb3, &buffer_bb4}) {
         buffer->clear();
       }
 
