@@ -348,13 +348,13 @@ class MegaPoseServer:
         img = np.uint8(img).reshape(1, -1).tolist()[0]
 
         response = RenderResponse()
-        response.header.stamp = rospy.Time.now()
-        response.height = renderings.rgb.shape[0]
-        response.width = renderings.rgb.shape[1]
-        response.encoding = 'rgb8'
-        response.is_bigendian = 0
-        response.step = 3 * renderings.rgb.shape[1]
-        response.data = img
+        response.image.header.stamp = rospy.Time.now()
+        response.image.height = renderings.rgb.shape[0]
+        response.image.width = renderings.rgb.shape[1]
+        response.image.encoding = 'rgb8'
+        response.image.is_bigendian = 0
+        response.image.step = 3 * renderings.rgb.shape[1]
+        response.image.data = img
         return response
 
 if __name__ == '__main__':

@@ -92,7 +92,8 @@ class MegaPoseClient
   vpImage<vpRGBa> vpI;        
   vpCameraParameters vpcam_info;
   optional<vpRect> detection;
-  deque<double> buffer_x, buffer_y, buffer_z,buffer_qw, buffer_qx, buffer_qy, buffer_qz;
+  deque<double> buffer_x, buffer_y, buffer_z, buffer_qw, buffer_qx, buffer_qy, buffer_qz;
+  deque<double> buffer_bb1, buffer_bb2, buffer_bb3, buffer_bb4;
 
   // ROS variables
 
@@ -128,6 +129,7 @@ class MegaPoseClient
   void frameCallback_rgbd(const sensor_msgs::ImageConstPtr &image, const sensor_msgs::CameraInfoConstPtr &cam_info, const sensor_msgs::ImageConstPtr &depth);
   void broadcastTransform(const geometry_msgs::Transform &transform, const string &child_frame_id, const string &camera_tf);
   void broadcastTransform_filter(const geometry_msgs::Transform &origpose, const string &child_frame_id, const string &camera_tf);
+  void boundingbox_filter(const float (&bb)[4]);
   double calculateMovingAverage(const deque<double>& buffer);
   void displayScore(float);
   void overlayRender(const vpImage<vpRGBa> &overlay);
@@ -309,18 +311,11 @@ void MegaPoseClient::broadcastTransform(const geometry_msgs::Transform &transfor
 
 void MegaPoseClient::broadcastTransform_filter(const geometry_msgs::Transform &origpose, const string &child_frame_id, const string &camera_tf)
 {
-  if(confidence > refilterThreshold)
+  if (confidence > refilterThreshold)
   {
-    if (boost::numeric_cast<int>(buffer_x.size()) >= buffer_size)
-    {
-      buffer_x.pop_front();
-      buffer_y.pop_front();
-      buffer_z.pop_front();
-      buffer_qw.pop_front();
-      buffer_qx.pop_front();
-      buffer_qy.pop_front();
-      buffer_qz.pop_front();
-    }
+    if (buffer_x.size() >= buffer_size)
+      for (auto &buffer : {&buffer_x, &buffer_y, &buffer_z, &buffer_qw, &buffer_qx, &buffer_qy, &buffer_qz}) buffer->pop_front();
+
     buffer_x.push_back(origpose.translation.x);
     buffer_y.push_back(origpose.translation.y);
     buffer_z.push_back(origpose.translation.z);
@@ -328,7 +323,7 @@ void MegaPoseClient::broadcastTransform_filter(const geometry_msgs::Transform &o
     buffer_qx.push_back(origpose.rotation.x);
     buffer_qy.push_back(origpose.rotation.y);
     buffer_qz.push_back(origpose.rotation.z);
-    
+
     filter_transform.translation.x = calculateMovingAverage(buffer_x);
     filter_transform.translation.y = calculateMovingAverage(buffer_y);
     filter_transform.translation.z = calculateMovingAverage(buffer_z);
@@ -337,13 +332,30 @@ void MegaPoseClient::broadcastTransform_filter(const geometry_msgs::Transform &o
     filter_transform.rotation.y = calculateMovingAverage(buffer_qy);
     filter_transform.rotation.z = calculateMovingAverage(buffer_qz);
 
-    static tf2_ros::TransformBroadcaster br2;  
-    static geometry_msgs::TransformStamped transformStamped;
+    static tf2_ros::TransformBroadcaster br2;
+    geometry_msgs::TransformStamped transformStamped;
     transformStamped.header.stamp = ros::Time::now();
     transformStamped.header.frame_id = camera_tf;
     transformStamped.child_frame_id = child_frame_id + "_filtered";
     transformStamped.transform = filter_transform;
     br2.sendTransform(transformStamped);
+  }
+}
+
+void MegaPoseClient::boundingbox_filter(const float (&bb)[4])
+{
+  if (confidence > refilterThreshold)
+  {
+    if (buffer_bb1.size() >= buffer_size)
+      for (auto &buffer : {&buffer_bb1, &buffer_bb2, &buffer_bb3, &buffer_bb4}) buffer->pop_front();
+
+    buffer_bb1.push_back(bb[0]);
+    buffer_bb2.push_back(bb[1]);
+    buffer_bb3.push_back(bb[2]);
+    buffer_bb4.push_back(bb[3]);
+
+    for (int i = 0; i < 4; ++i)
+      this->bb[i] = calculateMovingAverage(*(&buffer_bb1 + i));
   }
 }
 
@@ -386,11 +398,7 @@ void MegaPoseClient::overlayRender(const vpImage<vpRGBa> &overlay)
 
 void MegaPoseClient::displayEvent(const optional<vpRect> &detection) 
 {
-  vpDisplay::displayText(vpI, 20, 20, "q: Quit", vpColor::red);
-  vpDisplay::displayText(vpI, 30, 20, "t: Reinitialize", vpColor::red);
-  vpDisplay::displayText(vpI, 40, 20, "b: Enable/Disable Current BBox / n: Enable/Disable Initial BBox ", vpColor::red);
-  vpDisplay::displayText(vpI, 50, 20, "s: Save current pose", vpColor::red);
-  vpDisplay::displayText(vpI, 60, 20, "r: Render model", vpColor::red);
+  vpDisplay::displayText(vpI, 20, 20, "q: Quit | t: Reinitialize | b/n: Toggle BBox | s: Save Pose | r: Render", vpColor::red);
 
   string keyboardEvent;
   const bool keyPressed = vpDisplay::getKeyboardEvent(vpI, keyboardEvent, false);
@@ -459,7 +467,8 @@ void MegaPoseClient::displayEvent(const optional<vpRect> &detection)
   }
 
   if (show_track_bb) {
-
+    
+    boundingbox_filter(bb);
     vpImagePoint topLeft(bb[1], bb[0]);
     vpImagePoint bottomRight(bb[3], bb[2]);
     vpDisplay::displayRectangle(vpI, topLeft, bottomRight, vpColor::red, false, 2);
@@ -669,6 +678,11 @@ void MegaPoseClient::init_service_response_callback(const visp_megapose::Init::R
     buffer_qx.clear();
     buffer_qy.clear();
     buffer_qz.clear();
+
+    buffer_bb1.clear();
+    buffer_bb2.clear();
+    buffer_bb3.clear();
+    buffer_bb4.clear();
   }
 
   if (confidence < reinitThreshold) {
