@@ -1,0 +1,90 @@
+# Blender 4.4.0 MTL File: 'box3_4.blend'
+# www.blender.org
+
+newmtl box3
+Ns 250.000000
+Ka 1.000000 1.000000 1.000000
+Ks 0.500000 0.500000 0.500000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 2
+map_Kd /home/vince/Modelli_Megapose-20250327T081950Z-001/Modelli_Megapose/box3/box3_1/box3.jpg
+map_Bump -bm 1.000000 /home/vince/Modelli_Megapose-20250327T081950Z-001/Modelli_Megapose/box3/box3_1/DefaultMaterial_Normal.png
+
+newmtl box3.001
+Ns 250.000000
+Ka 1.000000 1.000000 1.000000
+Ks 0.500000 0.500000 0.500000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 2
+map_Kd /home/vince/Modelli_Megapose-20250327T081950Z-001/Modelli_Megapose/box3/box3_1/box3.jpg
+map_Bump -bm 1.000000 /home/vince/Modelli_Megapose-20250327T081950Z-001/Modelli_Megapose/box3/box3_1/DefaultMaterial_Normal.png
+
+newmtl box3.002
+Ns 250.000000
+Ka 1.000000 1.000000 1.000000
+Ks 0.500000 0.500000 0.500000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 2
+map_Kd /home/vince/Modelli_Megapose-20250327T081950Z-001/Modelli_Megapose/box3/box3_1/box3.jpg
+map_Bump -bm 1.000000 /home/vince/Modelli_Megapose-20250327T081950Z-001/Modelli_Megapose/box3/box3_1/DefaultMaterial_Normal.png
+
+newmtl box3.003
+Ns 250.000000
+Ka 1.000000 1.000000 1.000000
+Ks 0.500000 0.500000 0.500000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 2
+map_Kd /home/vince/Modelli_Megapose-20250327T081950Z-001/Modelli_Megapose/box3/box3_1/box3.jpg
+map_Bump -bm 1.000000 /home/vince/Modelli_Megapose-20250327T081950Z-001/Modelli_Megapose/box3/box3_1/DefaultMaterial_Normal.png
+
+newmtl box3.004
+Ns 250.000000
+Ka 1.000000 1.000000 1.000000
+Ks 0.500000 0.500000 0.500000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 2
+map_Kd /home/vince/Modelli_Megapose-20250327T081950Z-001/Modelli_Megapose/box3/box3_1/box3.jpg
+map_Bump -bm 1.000000 /home/vince/Modelli_Megapose-20250327T081950Z-001/Modelli_Megapose/box3/box3_1/DefaultMaterial_Normal.png
+
+newmtl box3.005
+Ns 250.000000
+Ka 1.000000 1.000000 1.000000
+Ks 0.500000 0.500000 0.500000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 2
+map_Kd /home/vince/Modelli_Megapose-20250327T081950Z-001/Modelli_Megapose/box3/box3_1/box3.jpg
+map_Bump -bm 1.000000 /home/vince/Modelli_Megapose-20250327T081950Z-001/Modelli_Megapose/box3/box3_1/DefaultMaterial_Normal.png
+
+newmtl box3.006
+Ns 250.000000
+Ka 1.000000 1.000000 1.000000
+Ks 0.500000 0.500000 0.500000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 2
+map_Kd /home/vince/Modelli_Megapose-20250327T081950Z-001/Modelli_Megapose/box3/box3_1/box3.jpg
+map_Bump -bm 1.000000 /home/vince/Modelli_Megapose-20250327T081950Z-001/Modelli_Megapose/box3/box3_1/DefaultMaterial_Normal.png
+
+newmtl box3.007
+Ns 250.000000
+Ka 1.000000 1.000000 1.000000
+Ks 0.500000 0.500000 0.500000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 2
+map_Kd /home/vince/Modelli_Megapose-20250327T081950Z-001/Modelli_Megapose/box3/box3_1/box3.jpg
+map_Bump -bm 1.000000 /home/vince/Modelli_Megapose-20250327T081950Z-001/Modelli_Megapose/box3/box3_1/DefaultMaterial_Normal.png
