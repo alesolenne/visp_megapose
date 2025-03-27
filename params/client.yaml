@@ -16,9 +16,9 @@ reinitThreshold: 0.1,                                    # Reinit threshold for 
 
 refilterThreshold: 0.5,                                  # Filter threshold for filter poses
 
-buffer_size: 20,                                         # Buffer size for filter poses
+buffer_size: 10,                                         # Buffer size for filter poses
 
-detector_method: "CLICK",                                 # Detector method to generate initial bounding box
+detector_method: "LOAD",                                 # Detector method to generate initial bounding box
 
 bb3d_topic: "/BB3D"                                      # BB3D topic
 

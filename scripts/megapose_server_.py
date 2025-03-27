@@ -60,15 +60,16 @@ class MegaPoseServer:
             }
 
         # Load camera intrinsic parameters from the provided data
+        print(data['K'][0])
         camera_data = {
-            'K': np.asarray([
-                [data['K'][0][0], 0.0, data['K'][0][2]],
-                [0.0, data['K'][1][1], data['K'][1][2]],
-                [0.0, 0.0, 1.0]
-            ]),
-            'h': data['h'],
-            'w': data['w']
-        }
+                 'K': np.asarray([
+                     [data['K'][0], 0.0, data['K'][2]],
+                     [0.0, data['K'][4], data['K'][5]],
+                     [0.0, 0.0, 1.0]
+                 ]),
+                 'h': data['h'],
+                 'w': data['w']
+         }
 
         # Retrieve the selected MegaPose model from ROS parameters
         model = rospy.get_param("~megapose_model")
