@@ -332,9 +332,9 @@ optional<vpRect> MegaPoseClient::detectObjectForInitMegaposeLoad(const string &o
 
 optional<vpRect> MegaPoseClient::detectObjectForInitMegaposeBB3D(const visp_megapose::BB3D &bb_msg)
 { 
-    double dim_x = bb3d_msg.dim_x;
-    double dim_y = bb3d_msg.dim_y;
-    double dim_z = bb3d_msg.dim_z;
+    double dim_x = bb3d_msg.dimensions.x;
+    double dim_y = bb3d_msg.dimensions.y;
+    double dim_z = bb3d_msg.dimensions.z;
 
     Eigen::Matrix4f T = Eigen::Matrix4f::Identity();
     Eigen::Quaternionf q(bb3d_msg.pose.rotation.w, bb3d_msg.pose.rotation.x, bb3d_msg.pose.rotation.y, bb3d_msg.pose.rotation.z);
@@ -503,7 +503,7 @@ void MegaPoseClient::BB3DCallback(const visp_megapose::BB3D &bb3d)
   ROS_INFO("3D Bounding box pose: Translation (%f, %f, %f), Rotation (%f, %f, %f, %f), Dimensions: (%f, %f, %f)", 
            bb3d.pose.translation.x, bb3d.pose.translation.y, bb3d.pose.translation.z, 
            bb3d.pose.rotation.x, bb3d.pose.rotation.y, bb3d.pose.rotation.z, bb3d.pose.rotation.w,
-           bb3d.dim_x, bb3d.dim_y, bb3d.dim_z);
+           bb3d.dimensions.x, bb3d.dimensions.y, bb3d.dimensions.z);
   
   // Save BB3D message
   bb3d_msg = bb3d;

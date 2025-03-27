@@ -26,9 +26,9 @@ def talker():
     bb3.pose.rotation.y = q[1]
     bb3.pose.rotation.z = q[2]
     bb3.pose.rotation.w = q[3]
-    bb3.dim_x = 0.06
-    bb3.dim_y = 0.14
-    bb3.dim_z = 0.07
+    bb3.dimensions.x = 0.06
+    bb3.dimensions.y = 0.14
+    bb3.dimensions.z = 0.07
     
     while not rospy.is_shutdown():
 

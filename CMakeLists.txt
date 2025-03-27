@@ -18,6 +18,7 @@ find_package(catkin REQUIRED COMPONENTS
   std_msgs
   message_filters
   tf2_ros
+  jsk_recognition_msgs
 )
 find_package(VISP REQUIRED)
 catkin_python_setup()
@@ -50,7 +51,7 @@ add_service_files(
 ## Generate added messages and services with any dependencies listed here
 generate_messages(
    DEPENDENCIES
-   geometry_msgs sensor_msgs std_msgs
+   geometry_msgs sensor_msgs std_msgs jsk_recognition_msgs
 )
 
 ################################################

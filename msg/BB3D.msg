@@ -1,4 +1,2 @@
-geometry_msgs/Transform pose
-float64 dim_x
-float64 dim_y
-float64 dim_z
+std_msgs/Header header
+jsk_recognition_msgs/BoundingBox[] boxes
