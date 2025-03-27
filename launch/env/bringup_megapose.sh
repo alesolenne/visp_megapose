@@ -13,7 +13,7 @@ tmux split-window -vf
 tmux split-window -h
 
 #Launch the camera node driver
-tmux send-keys -t 0 "roslaunch realsense2_camera rs_camera.launch" C-m
+tmux send-keys -t 0 "roslaunch realsense2_camera rs_camera.launch align_depth:=true depth_width:=640 depth_height:=480 depth_fps:=30 color_width:=640 color_height:=480 color_fps:=30" C-m
 sleep 1.0
 
 #Launch the image resizer node

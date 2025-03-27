@@ -8,7 +8,7 @@ depth_topic: "/camera/aligned_depth_to_color/image_raw", # Set the depth image t
 
 camera_tf: "camera_link",                                # Set the camera frame
 
-object_name: "box1",                                     # Set the object to be detected
+object_name: "box1_1",                                     # Set the object to be detected
 
 depth_enable: False,                                     # Enable depth image
 
