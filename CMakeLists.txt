@@ -31,7 +31,6 @@ add_message_files(
   FILES
   ObjectName.msg
   PoseResult.msg
-  BB3D.msg
 )
 
 add_service_files(

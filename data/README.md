@@ -1,1 +1,1 @@
-La cartella "models" viene caricata dal Server di Megapose, conviene non riempirla di modelli per evitare di sovraccaricarlo di lavoro e raggiungere il limite di memoria della piattaforma. Nella cartella "repository" ci sono tutti i modelli generati per il lavoro.
+The "models" folder is loaded by the Megapose Server; it is advisable not to fill it with models to avoid overloading it and reaching the platform's memory limit. The "repository" folder contains all the models generated for the work.

@@ -27,6 +27,10 @@
 #include <visp_megapose/Render.h>
 #include <visp_megapose/BB3D.h>
 
+// Include JSK recognition messages for handling bounding boxes
+#include <jsk_recognition_msgs/BoundingBox.h>       
+#include <jsk_recognition_msgs/BoundingBoxArray.h>
+
 // ROS message filter includes
 #include <message_filters/subscriber.h>
 #include <message_filters/synchronizer.h>
@@ -101,7 +105,7 @@ class MegaPoseClient
   // ROS variables
 
   sensor_msgs::CameraInfoConstPtr roscam_info;
-  visp_megapose::BB3D bb3d_msg;
+  jsk_recognition_msgs::BoundingBox bb3d_msg;
 
   boost::shared_ptr<const sensor_msgs::Image> rosI; 
   boost::shared_ptr<const sensor_msgs::Image> rosD; 
@@ -141,14 +145,14 @@ class MegaPoseClient
   vpColor interpolate(const vpColor &low, const vpColor &high, const float f);
   optional<vpRect> detectObjectForInitMegaposeClick(const string &object_name);
   optional<vpRect> detectObjectForInitMegaposeLoad(const string &object_name);
-  optional<vpRect> detectObjectForInitMegaposeBB3D(const visp_megapose::BB3D &bb_msg);
+  optional<vpRect> detectObjectForInitMegaposeBB3D(const jsk_recognition_msgs::BoundingBox &bb_msg);
   DetectionMethod getDetectionMethodFromString(const std::string &str);
 
   void init_service_response_callback(const visp_megapose::Init::Response &future);
   void track_service_response_callback(const visp_megapose::Track::Response &future);
   void render_service_response_callback(const visp_megapose::Render::Response &future);
 
-  void BB3DCallback(const visp_megapose::BB3D &bb3d);
+  void BB3DCallback(const jsk_recognition_msgs::BoundingBoxArray &bb_array);
 
 public:
 MegaPoseClient(ros::NodeHandle *nh) 
@@ -587,16 +591,16 @@ optional<vpRect> MegaPoseClient::detectObjectForInitMegaposeLoad(const string &o
 
 }
 
-optional<vpRect> MegaPoseClient::detectObjectForInitMegaposeBB3D(const visp_megapose::BB3D &bb_msg)
+optional<vpRect> MegaPoseClient::detectObjectForInitMegaposeBB3D(const jsk_recognition_msgs::BoundingBox &bb_msg)
 { 
-    double dim_x = bb3d_msg.dimensions.x;
-    double dim_y = bb3d_msg.dimensions.y;
-    double dim_z = bb3d_msg.dimensions.z;
+    double dim_x = bb_msg.dimensions.x;
+    double dim_y = bb_msg.dimensions.y;
+    double dim_z = bb_msg.dimensions.z;
 
     Eigen::Matrix4f T = Eigen::Matrix4f::Identity();
-    Eigen::Quaternionf q(bb3d_msg.pose.rotation.w, bb3d_msg.pose.rotation.x, bb3d_msg.pose.rotation.y, bb3d_msg.pose.rotation.z);
+    Eigen::Quaternionf q(bb_msg.pose.orientation.w, bb_msg.pose.orientation.x, bb_msg.pose.orientation.y, bb_msg.pose.orientation.z);
     T.block<3,3>(0,0) = q.toRotationMatrix();
-    T.block<3,1>(0,3) << bb3d_msg.pose.translation.x, bb3d_msg.pose.translation.y, bb3d_msg.pose.translation.z;
+    T.block<3,1>(0,3) << bb_msg.pose.position.x, bb_msg.pose.position.y, bb_msg.pose.position.z;
 
     Eigen::Vector4f p1 ( dim_x / 2,  dim_y / 2,  dim_z / 2, 1);
     Eigen::Vector4f p2 ( dim_x / 2,  dim_y / 2, -dim_z / 2, 1);
@@ -752,25 +756,31 @@ void MegaPoseClient::render_service_response_callback(const visp_megapose::Rende
     }
 }
 
-void MegaPoseClient::BB3DCallback(const visp_megapose::BB3D &bb3d)
+void MegaPoseClient::BB3DCallback(const jsk_recognition_msgs::BoundingBoxArray &bb_array)
 {
 
-  // if (condition)
-  // {
-  //   /* code */
-  // }
+  // Check if the bounding box array contains the boxes wanted
+  if (bb_array.boxes[0].header.frame_id == object_name)
+  {
+      // Process the first bounding box in the array
+      const auto &bb3d = bb_array.boxes[0];
 
-  // Convert 3D bounding box to 2D bounding box
+      // Log the 3D bounding box pose and dimensions
+      ROS_INFO("3D Bounding box pose: Translation (%f, %f, %f), Rotation (%f, %f, %f, %f), Dimensions: (%f, %f, %f)", 
+              bb3d.pose.position.x, bb3d.pose.position.y, bb3d.pose.position.z, 
+              bb3d.pose.orientation.x, bb3d.pose.orientation.y, bb3d.pose.orientation.z, bb3d.pose.orientation.w,
+              bb3d.dimensions.x, bb3d.dimensions.y, bb3d.dimensions.z);
 
-  ROS_INFO("3D Bounding box pose: Translation (%f, %f, %f), Rotation (%f, %f, %f, %f), Dimensions: (%f, %f, %f)", 
-           bb3d.pose.translation.x, bb3d.pose.translation.y, bb3d.pose.translation.z, 
-           bb3d.pose.rotation.x, bb3d.pose.rotation.y, bb3d.pose.rotation.z, bb3d.pose.rotation.w,
-           bb3d.dimensions.x, bb3d.dimensions.y, bb3d.dimensions.z);
-  
-  // Save BB3D message
-  bb3d_msg = bb3d;
+      // Save the BB3D message
+      bb3d_msg = bb3d;
 
-  got_bb3d = true;
+      // Update the flag to indicate that a bounding box has been received
+      got_bb3d = true;
+  }
+  else{
+    return;
+  }
+
 
 }
 
