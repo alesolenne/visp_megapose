@@ -38,7 +38,7 @@ def generate_grasp_pose(translation, rotation, object_name, index):
 
   # Adjust frame to the surface of the object
   object_offsets = {
-    'box1_1': 0.063, 'box1_6': 0.063, 'box1_3': 0.063,
+    'box1_1': 0.063, 'box1_6': 0.063, 'box1_3': 0.063, 'box1_2' : 0.063,
     'box2': 0.024, 'box3': 0.049, 'box4': 0.04,
     'box5': 0.06, 'cube': 0.06, 'cubo_verde': 0.06
   }
