@@ -60,7 +60,6 @@ class MegaPoseServer:
             }
 
         # Load camera intrinsic parameters from the provided data
-        print(data['K'][0])
         camera_data = {
                  'K': np.asarray([
                      [data['K'][0], 0.0, data['K'][2]],

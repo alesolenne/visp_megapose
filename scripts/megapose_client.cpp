@@ -16,7 +16,7 @@
 #include <visp_bridge/camera.h>
 #include <visp_bridge/image.h>
 
-// ROS core includes
+// ROS includes
 #include <ros/ros.h>
 #include <tf2_ros/transform_broadcaster.h>
 #include <sensor_msgs/Image.h>
@@ -25,7 +25,6 @@
 #include <visp_megapose/Init.h>
 #include <visp_megapose/Track.h>
 #include <visp_megapose/Render.h>
-#include <visp_megapose/BB3D.h>
 
 // Include JSK recognition messages for handling bounding boxes
 #include <jsk_recognition_msgs/BoundingBox.h>       
@@ -47,8 +46,8 @@ enum DetectionMethod
 {
   UNKNOWN,
   CLICK,
-  BB3D,
-  LOAD
+  LOAD,
+  BB3D
 };
 
 std::map<std::string, DetectionMethod> stringToDetectionMethod = {
@@ -780,7 +779,6 @@ void MegaPoseClient::BB3DCallback(const jsk_recognition_msgs::BoundingBoxArray &
   else{
     return;
   }
-
 
 }
 

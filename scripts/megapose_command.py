@@ -21,11 +21,11 @@ def callback(msg):
 
     while current_object_index < num_objects and process_next_object:
       process_next_object = False
-      rospy.loginfo(f"Object found and grasp pose for {object_list[current_object_index]} generated!")
+      rospy.logwarn(f"Object found and grasp pose for {object_list[current_object_index]} generated!")
       current_object_index += 1
 
       if current_object_index < num_objects:
-        rospy.loginfo(f"Generate the bounding box for {object_list[current_object_index]} with interface!")
+        rospy.loginfo(f"Publish/Generate the bounding box for {object_list[current_object_index]}!")
 
 
 def generate_grasp_pose(translation, rotation, object_name, index):
@@ -38,7 +38,7 @@ def generate_grasp_pose(translation, rotation, object_name, index):
 
   # Adjust frame to the surface of the object
   object_offsets = {
-    'box1': 0.063, 'box1_6': 0.063, 'box1_3': 0.063,
+    'box1_1': 0.063, 'box1_6': 0.063, 'box1_3': 0.063,
     'box2': 0.024, 'box3': 0.049, 'box4': 0.04,
     'box5': 0.06, 'cube': 0.06, 'cubo_verde': 0.06
   }
@@ -75,7 +75,7 @@ if __name__ == '__main__':
   for idx, obj_name in enumerate(object_list, start=1):
     rospy.loginfo(f"Object number {idx}: {obj_name}")
 
-  rospy.loginfo(f"Generate the bounding box for {object_list[0]} with interface!")
+  rospy.loginfo(f"Publish/Generate the bounding box for {object_list[0]}!")
 
   # Initialize variables
   current_object_index = 0
