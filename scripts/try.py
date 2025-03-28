@@ -45,6 +45,26 @@ def callback(data):
 
     transformation = generate_grasp_pose(translation, rotation, box_x, box_z, offset_x, offset_z, 0, 0)
 
+    tf = rospy.Publisher("/tf", TFMessage, queue_size=10)
+
+    for i in range(transformation.shape[1] // 4):
+        matrix = transformation[:, i * 4:(i + 1) * 4]
+        translation = matrix[:3, 3]
+        rotation = tr.quaternion_from_matrix(matrix)
+        transform = geometry_msgs.msg.TransformStamped()
+        transform.header.stamp = rospy.Time.now()
+        transform.header.frame_id = "world"
+        transform.child_frame_id = f"grasp_pose_{i}"
+        transform.transform.translation.x = translation[0]
+        transform.transform.translation.y = translation[1]
+        transform.transform.translation.z = translation[2]
+        transform.transform.rotation.x = rotation[0]
+        transform.transform.rotation.y = rotation[1]
+        transform.transform.rotation.z = rotation[2]
+        transform.transform.rotation.w = rotation[3]
+        tf_message = TFMessage([transform])
+        tf.publish(tf_message)
+
 
 def generate_grasp_pose(translation, rotation, box_x, box_z, offset_x, offset_z, object_name, index):
   # Convert quaternion to Euler angles
@@ -92,26 +112,7 @@ if __name__ == '__main__':
     try:
         rospy.init_node('result_subscriber', anonymous=True)
         rospy.Subscriber('Result', Result, callback)  # Replace String with the appropriate message type
-        tf = rospy.Publisher("/tf", TFMessage, queue_size=10)
-
-        print('ciao')
-
-        while not rospy.is_shutdown():
-
-
-            for i in range(transformation.shape[1] // 4):
-                matrix = transformation[:, i * 4:(i + 1) * 4]
-                translation = matrix[:3, 3]
-                rotation = tr.quaternion_from_matrix(matrix)
-                tf.sendTransform(
-                    (translation[0], translation[1], translation[2]),
-                    (rotation[0], rotation[1], rotation[2], rotation[3]),
-                    rospy.Time.now(),
-                    f"grasp_pose_{i}",
-                    "world"
-                )
-            
-            rospy.spin()
+        rospy.spin()
 
 
 
