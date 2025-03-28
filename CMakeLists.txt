@@ -31,6 +31,7 @@ add_message_files(
   FILES
   ObjectName.msg
   PoseResult.msg
+  Result.msg
 )
 
 add_service_files(

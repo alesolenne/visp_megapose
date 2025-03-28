@@ -4,7 +4,7 @@ import rospy
 import numpy as np
 import geometry_msgs.msg
 from tf2_msgs.msg import TFMessage
-from visp_megapose.msg import ObjectName, PoseResult
+from visp_megapose.msg import ObjectName, PoseResult, Result
 import tf.transformations as tr
 
 
@@ -85,6 +85,7 @@ if __name__ == '__main__':
 
   # Publishers and subscribers
   object_publisher = rospy.Publisher('ObjectList', ObjectName, queue_size=10)
+  object_result = rospy.Publisher('Result', Result, queue_size=10)
   pose_subscriber = rospy.Subscriber('PoseResult', PoseResult, callback)
   tf_publisher = rospy.Publisher("/tf", TFMessage, queue_size=10)
 
@@ -114,5 +115,17 @@ if __name__ == '__main__':
 
       tf_message = TFMessage([transform])
       tf_publisher.publish(tf_message)
+
+      b = Result()
+      b.name = object_list[idx]
+      b.pose.translation.x = object_poses[idx][0]
+      b.pose.translation.y = object_poses[idx][1]
+      b.pose.translation.z = object_poses[idx][2]
+      b.pose.rotation.x = object_poses[idx][3]
+      b.pose.rotation.y = object_poses[idx][4]
+      b.pose.rotation.z = object_poses[idx][5]
+      b.pose.rotation.w = object_poses[idx][6]
+
+      object_result.publish(b)
 
     rate.sleep()
