@@ -33,7 +33,7 @@ sleep 1.0
 tmux send-keys -t 4 "user=${user} &&. /home/${user}/catkin_ws/src/visp_megapose/bringup/megapose_env.sh " C-m
 sleep 1.0
 tmux send-keys -t 4 "roslaunch visp_megapose megapose_server.launch" C-m
-sleep 1.0
+sleep 2.0
 
 tmux send-keys -t 5 "roslaunch visp_megapose megapose_client_command.launch" C-m
 
