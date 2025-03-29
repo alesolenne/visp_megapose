@@ -18,7 +18,7 @@ refilterThreshold: 0.5,                                                   # Filt
 
 buffer_size: 10,                                                          # Buffer size for filter poses
 
-detector_method: "CLICK",                                                  # Detector method to generate initial bounding box
+detector_method: "LOAD",                                                  # Detector method to generate initial bounding box
 
 bb3d_topic: "/perception/visualiztion/tracked_scene_objects/bboxes3d"     # BB3D topic
 
