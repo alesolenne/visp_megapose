@@ -8,7 +8,7 @@ depth_topic: "/camera/aligned_depth_to_color/image_raw",                  # Set 
 
 camera_tf: "camera_link",                                                 # Set the camera frame
 
-object_name: "box1_3",                                                    # Set the object to be detected
+object_name: "box1_6",                                                    # Set the object to be detected
 
 depth_enable: False,                                                      # Enable depth image
 
@@ -18,7 +18,7 @@ refilterThreshold: 0.5,                                                   # Filt
 
 buffer_size: 10,                                                          # Buffer size for filter poses
 
-detector_method: "LOAD",                                                  # Detector method to generate initial bounding box
+detector_method: "CLICK",                                                  # Detector method to generate initial bounding box
 
 bb3d_topic: "/perception/visualiztion/tracked_scene_objects/bboxes3d"     # BB3D topic
 
