@@ -27,7 +27,6 @@
 #include <visp_megapose/Render.h>
 #include <visp_megapose/ObjectName.h>
 #include <visp_megapose/PoseResult.h>
-#include <visp_megapose/BB3D.h>
 
 // Include JSK recognition messages for handling bounding boxes
 #include <jsk_recognition_msgs/BoundingBox.h>       
