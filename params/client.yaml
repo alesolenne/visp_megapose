@@ -1,14 +1,14 @@
 {
   
-image_topic: "/camera/color/image_raw",                                   # Set the image topic
+image_topic: "/res/camera/color/image_raw",                                   # Set the image topic
 
-camera_info_topic: "/camera/color/camera_info",                           # Set the camera info topic
+camera_info_topic: "/res/camera/color/camera_info",                           # Set the camera info topic
 
 depth_topic: "/camera/aligned_depth_to_color/image_raw",                  # Set the depth image topic
 
-camera_tf: "camera_link",                                                 # Set the camera frame
+camera_tf: "camera_color_optical_frame",                                                 # Set the camera frame
 
-object_name: "box1_6",                                                    # Set the object to be detected
+object_name: "box1_1",                                                    # Set the object to be detected
 
 depth_enable: False,                                                      # Enable depth image
 

@@ -25,16 +25,15 @@ sleep 2.0
 tmux send-keys -t 2 "roslaunch ros_imresize imresize_depth.launch" C-m
 sleep 1.0
 
-#Launch the MegaPose client
-tmux send-keys -t 3 "roslaunch visp_megapose command.launch" C-m
-sleep 1.0
-
 #Launch the MegaPose server
 tmux send-keys -t 4 "user=${user} &&. /home/${user}/catkin_ws/src/visp_megapose/bringup/megapose_env.sh " C-m
 sleep 1.0
 tmux send-keys -t 4 "roslaunch visp_megapose megapose_server.launch" C-m
 sleep 2.0
 
+#Launch the MegaPose client
 tmux send-keys -t 5 "roslaunch visp_megapose megapose_client_command.launch" C-m
+sleep 1.0
+tmux send-keys -t 3 "roslaunch visp_megapose command.launch" C-m
 
 tmux attach-session -t megapose
