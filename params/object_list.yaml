@@ -1,5 +1,5 @@
 {
-object_name_1: "box1_1",
+object_name_1: "box1_3_1",
 
 object_name_2: "box3_1",
 
@@ -15,5 +15,5 @@ object_name_7: "box3",
 
 object_name_8: "box3",
 
-n_object: 2
+n_object: 1
 }
