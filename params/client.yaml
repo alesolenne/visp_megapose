@@ -1,12 +1,12 @@
 {
   
-image_topic: "/camera/color/image_raw",                                   # Set the image topic
+image_topic: "/res/top_right_rgbd_camera_2/rgb/image_raw",                    # Set the image topic
 
-camera_info_topic: "/camera/color/camera_info",                           # Set the camera info topic
+camera_info_topic: "/res/top_right_rgbd_camera_2/rgb/camera_info",            # Set the camera info topic
 
-depth_topic: "/camera/aligned_depth_to_color/image_raw",                  # Set the depth image topic
+depth_topic: "/res/top_right_rgbd_camera_2/depth_to_rgb/image_raw",      # Set the depth image topic
 
-camera_tf: "camera_color_optical_frame",                                                 # Set the camera frame
+camera_tf: "robot_top_right_rgbd_camera_2_rgb_camera_link",               # Set the camera frame
 
 object_name: "box1_3_1",                                                    # Set the object to be detected
 
