@@ -103,6 +103,7 @@ class MegaPoseClient
 
   // ROS variables
 
+  sensor_msgs::CameraInfo param;
   sensor_msgs::CameraInfoConstPtr roscam_info;
   jsk_recognition_msgs::BoundingBox bb3d_msg;
 
@@ -114,7 +115,7 @@ class MegaPoseClient
 
   // Message filters for synchronization
   message_filters::Subscriber<sensor_msgs::Image> image_sub;
-  message_filters::Subscriber<sensor_msgs::CameraInfo> camera_info_sub;
+  // message_filters::Subscriber<sensor_msgs::CameraInfo> camera_info_sub;
   message_filters::Subscriber<sensor_msgs::Image> depth_sub;
 
   typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::Image, sensor_msgs::CameraInfo> SyncPolicyRGB;
@@ -129,6 +130,7 @@ class MegaPoseClient
   // Functions
 
   void waitForData(const string &data_type);
+  void frameCallback(const sensor_msgs::Image::ConstPtr &image);
   void frameCallback_rgb(const sensor_msgs::ImageConstPtr &image, const sensor_msgs::CameraInfoConstPtr &camera_info);
   void frameCallback_rgbd(const sensor_msgs::ImageConstPtr &image, const sensor_msgs::CameraInfoConstPtr &cam_info, const sensor_msgs::ImageConstPtr &depth);
   void broadcastTransform(const geometry_msgs::Transform &transform, const string &child_frame_id, const string &camera_tf);
@@ -187,9 +189,20 @@ MegaPoseClient(ros::NodeHandle *nh)
   ros::param::get("detector_method", detector_method);     // Detection method to use
   ros::param::get("bb3d_topic", bb3d_topic);               // Name of the 3D bounding box topic
 
+  // Load camera parameters from file
+  ifstream camera_file(megapose_directory + "/params/camera.json", ifstream::in);
+  json info;
+  camera_file >> info;
+
+  param.K = {info["K"][0], 0, info["K"][2], 0, info["K"][4], info["K"][5], 0, 0, 1};
+  param.height = info["h"];
+  param.width = info["w"];
+
+  camera_file.close();
+
   // Subscribe to image and camera info topics
   image_sub.subscribe(nh_, image_topic, 1);
-  camera_info_sub.subscribe(nh_, camera_info_topic, 1);
+  // camera_info_sub.subscribe(nh_, camera_info_topic, 1);
 
   // Subscribe to BB3D topic if the detection method is BB3D
   if (getDetectionMethodFromString(detector_method) == BB3D)
@@ -197,18 +210,18 @@ MegaPoseClient(ros::NodeHandle *nh)
     bb3d_sub = nh_.subscribe(bb3d_topic, 1, &MegaPoseClient::BB3DCallback, this);
   }
 
-  // Set up synchronization for RGB or RGBD topics
-  if (!depth_enable)
-  {
-    sync_rgb = boost::make_shared<message_filters::Synchronizer<SyncPolicyRGB>>(SyncPolicyRGB(1), image_sub, camera_info_sub);
-    sync_rgb->registerCallback(boost::bind(&MegaPoseClient::frameCallback_rgb, this, _1, _2));
-  }
-  else
-  {
-    depth_sub.subscribe(nh_, depth_topic, 1);
-    sync_rgbd = boost::make_shared<message_filters::Synchronizer<SyncPolicyRGBD>>(SyncPolicyRGBD(1), image_sub, camera_info_sub, depth_sub);
-    sync_rgbd->registerCallback(boost::bind(&MegaPoseClient::frameCallback_rgbd, this, _1, _2, _3));
-  }
+  // // Set up synchronization for RGB or RGBD topics
+  // if (!depth_enable)
+  // {
+  //   sync_rgb = boost::make_shared<message_filters::Synchronizer<SyncPolicyRGB>>(SyncPolicyRGB(1), image_sub, camera_info_sub);
+  //   sync_rgb->registerCallback(boost::bind(&MegaPoseClient::frameCallback_rgb, this, _1, _2));
+  // }
+  // else
+  // {
+  //   depth_sub.subscribe(nh_, depth_topic, 1);
+  //   sync_rgbd = boost::make_shared<message_filters::Synchronizer<SyncPolicyRGBD>>(SyncPolicyRGBD(1), image_sub, camera_info_sub, depth_sub);
+  //   sync_rgbd->registerCallback(boost::bind(&MegaPoseClient::frameCallback_rgbd, this, _1, _2, _3));
+  // }
 };
 
 ~MegaPoseClient() = default;
@@ -241,7 +254,7 @@ void MegaPoseClient::frameCallback_rgb(const sensor_msgs::ImageConstPtr &image, 
   // Store the received image and camera info
   rosI = image;
   roscam_info = cam_info;
-
+  
   // Extract image dimensions
   width = image->width;
   height = image->height;
@@ -253,6 +266,15 @@ void MegaPoseClient::frameCallback_rgb(const sensor_msgs::ImageConstPtr &image, 
   // Update flag to indicate image availability
   got_image = true;
 
+}
+
+void MegaPoseClient::frameCallback(const sensor_msgs::Image::ConstPtr &image)
+{
+  rosI = image;
+  vpI = visp_bridge::toVispImageRGBa(*image);
+  width = image->width;
+  height = image->height;
+  got_image = true;
 }
 
 void MegaPoseClient::frameCallback_rgbd(const sensor_msgs::ImageConstPtr &image, const sensor_msgs::CameraInfoConstPtr &cam_info, const sensor_msgs::ImageConstPtr &depth)
@@ -441,6 +463,7 @@ void MegaPoseClient::displayEvent(const optional<vpRect> &detection)
   broadcastTransform(transform, object_name, camera_tf);
   broadcastTransform_filter(transform, object_name, camera_tf);
   M = visp_bridge::toVispHomogeneousMatrix(filter_transform);
+  vpcam_info = visp_bridge::toVispCameraParameters(param);
   vpDisplay::displayFrame(vpI, M, vpcam_info, 0.05, vpColor::none, 3);
 }
 
@@ -788,6 +811,8 @@ void MegaPoseClient::spin()
   ROS_INFO("Subscribing to image topic: %s", image_topic.c_str());
   ROS_INFO("Subscribing to camera info topic: %s", camera_info_topic.c_str());  
   
+  ros::Subscriber sub = nh_.subscribe(image_topic, 1000, &MegaPoseClient::frameCallback, this);
+
   waitForData("image");
   if (depth_enable)
    {
@@ -866,7 +891,7 @@ void MegaPoseClient::spin()
         init_pose.request.bottomright_i = detection->getBottomRight().get_i();
         init_pose.request.bottomright_j = detection->getBottomRight().get_j();
         init_pose.request.image = *rosI;
-        init_pose.request.camera_info = *roscam_info;
+        init_pose.request.camera_info = param;
         init_pose.request.depth_enable = depth_enable;
 
         if (depth_enable) { 
