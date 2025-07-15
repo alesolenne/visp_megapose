@@ -6,7 +6,7 @@ camera_info_topic: "/res/robot/k4a_top/rgb/qhd/camera_info",              # Set 
 
 depth_topic: "/res/top_right_rgbd_camera_2/depth_to_rgb/image_raw",       # Set the depth image topic
 
-camera_tf: "dio_ebete",                               # Set the camera frame
+camera_tf: "camera",                               # Set the camera frame
 
 object_name: "box1_1",                                                  # Set the object to be detected
 
