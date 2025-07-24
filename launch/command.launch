@@ -1,7 +1,0 @@
-<launch>
-  
-  <rosparam command="load" file="$(find visp_megapose)/params/object_list.yaml" />
-
-  <node pkg="visp_megapose" type="megapose_command.py" name="command" output="screen"/>
-
-</launch>
