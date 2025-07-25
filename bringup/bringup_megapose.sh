@@ -15,7 +15,7 @@ tmux split-window -v -t 0
 tmux split-window -v -t 1
 
 #Launch the camera node driver
-tmux send-keys -t 0 "roslaunch vision_tool rsvision_camera.launch" C-m
+tmux send-keys -t 0 "roslaunch vision_tool vision_camera.launch" C-m
 sleep 1.0
 
 #Launch the image resizer node
