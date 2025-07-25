@@ -15,6 +15,9 @@ tmux split-window -v -t 0
 tmux split-window -v -t 1
 
 #Launch the camera node driver
+
+#Se sei sul docker leva il lancio della camera
+
 tmux send-keys -t 0 "roslaunch vision_tool vision_camera.launch" C-m
 sleep 1.0
 
