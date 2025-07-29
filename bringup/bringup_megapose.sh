@@ -5,6 +5,7 @@ user=$(whoami)
 catkin_directory="/home/${user}/catkin_ws"
 cd ${catkin_directory}
 source devel/setup.bash
+cd ${catkin_directory}/src/visp_megapose/bringup
 
 tmux new-session -s megapose -n alessandro -d
 
